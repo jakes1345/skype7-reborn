@@ -1,0 +1,10 @@
+2026/04/13 19:39:01 dial: websocket: bad handshake
+2026/04/13 19:39:01 DEBUG: ShowMainWindow called
+2026/04/13 19:39:01 DEBUG: Initializing MainWindow
+2026/04/13 19:39:01 DEBUG: Window created
+2026/04/13 19:39:01 DEBUG: Window resized
+2026/04/13 19:39:01 DEBUG: Setting up Menu Bar
+2026/04/13 19:39:01 DEBUG: Menu Bar set
+2026/04/13 19:39:01 DEBUG: Creating Status Dropdown
+2026/04/13 19:39:01 DEBUG: Status Dropdown created
+2026/04/13 19:39:01 User status changed to: Online

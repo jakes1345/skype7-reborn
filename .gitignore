@@ -40,3 +40,10 @@ research_files/Offline Session/
 .vscode/
 .idea/
 *.code-workspace
+
+# Agent runtime
+.claude/
+
+# Research materials (too large for git, keep locally)
+research_files/
+native_client/assets/original_resources/

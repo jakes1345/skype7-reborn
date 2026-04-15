@@ -1,0 +1,66 @@
+version: 2
+
+project_name: skype7-reborn
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: skype
+    main: ./native_client
+    binary: skype
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: skype-nexus
+    main: ./nexus_server
+    binary: skype-nexus
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: default
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - native_client/assets/**/*
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^chore:'
+      - '^test:'
+
+release:
+  github:
+    owner: "{{ .Env.GITHUB_OWNER }}"
+    name: skype7-reborn
+  draft: false
+  prerelease: auto
+  header: |
+    ## Skype 7 Reborn — {{ .Tag }}
+
+    Download the archive for your platform below. Extract and run `skype`
+    (the client) or `skype-nexus` (the relay server).

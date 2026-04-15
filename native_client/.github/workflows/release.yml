@@ -1,0 +1,44 @@
+name: Native Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [linux, windows, darwin]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev
+
+      - name: Build Binary
+        run: |
+          go mod download
+          if [ "${{ matrix.target }}" == "windows" ]; then
+            GOOS=windows GOARCH=amd64 go build -o skype-classic-windows.exe .
+          elif [ "${{ matrix.target }}" == "darwin" ]; then
+            GOOS=darwin GOARCH=amd64 go build -o skype-classic-mac .
+          else
+            GOOS=linux GOARCH=amd64 go build -o skype-classic-linux .
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skype-classic-${{ matrix.target }}
+          path: skype-classic-*
