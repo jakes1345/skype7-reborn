@@ -20,3 +20,23 @@
 
 # Ignore application configuration
 /config/application.yml
+
+# Go build artifacts
+/skype
+/skype-nexus
+/skype.exe
+/skype-nexus.exe
+/dist/
+*.db
+*.db-journal
+
+# Large archives and research blobs
+oluo3y.7z
+research_files/*.exe
+research_files/Offline Session/
+*.7z
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace

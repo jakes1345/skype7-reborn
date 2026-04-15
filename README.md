@@ -1,66 +1,76 @@
-# Readme
+# Skype 7 — Reborn in Go
 
-Please do not sue me. I love Skype. Thank you. 
+A pixel-faithful remake of Skype 7 written entirely in Go. No Electron, no
+cgo, no Microsoft servers — just a native desktop client talking to a
+self-hostable relay.
 
-Live App at https://skypii.herokuapp.com 
-In order to talk to the demo user, please login as 
+![status](https://img.shields.io/badge/status-alpha-orange)
+![go](https://img.shields.io/badge/go-1.25%2B-00ADD8)
+![platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey)
 
-username: Alex, 
-password: "qqqqqq",
+## What's in the box
 
+- **`native_client/`** — Fyne desktop app. Classic Skype 7 Aero UI,
+  emoticon parser, contacts, group chats, 1:1 and group voice calls,
+  file transfer, presence/mood, typing indicators, read receipts.
+- **`nexus_server/`** — Pure-Go WebSocket relay. bcrypt auth, SQLite
+  storage, friend requests, conversations, offline message delivery,
+  WebRTC signaling.
 
-# For Development
+Voice uses WebRTC + PCMU (G.711 µ-law) @ 8 kHz with PulseAudio I/O on
+Linux. Everything is pure Go — no libopus, no libwebrtc, no cgo.
 
-Within directory
-1. bundle install
-2. npm install
-3. npm start
-4. rails s
-5. thank you!
+## Quick start
 
-All rights and stuff belongs to my Microsoft overlords
+```bash
+# 1. Run the relay
+go run ./nexus_server
 
-# Skypii
+# 2. Run the client (in another terminal)
+go run ./native_client
+```
 
-[heroku]: https://skypii.herokuapp.com/
+First launch prompts you to register. Passwords are bcrypt-hashed on
+the server and stored in the OS keyring on the client.
 
-Skypii is a clone of Skype. The project was created in less than two weeks (with a hackathon project in between). I made sure to create my app for future extensions because I am dead set on completing a true to life clone to the best of my abiities. Other than the usual websocket stuff, please see what features I've begun and will be adding.
+## Self-hosting the relay
 
-## Features
-  * Users can enter emoji keywords such as "(kiss)" or "(happy)" to send emojis in between text. 
-  * Fully featured backend authentication allows users to see only their friends' chats and chatrooms while keeping others
-    unseen unless the user has added the other user as a friend.
-  * Emojis are "natively" animated. They're not just simple image of gif tags but rather animated canvas elements.
-  * Search feature allows the user to fuzzy search the users database in order to add a friend.
-  * Rooms can be created with a one single other user or many users.
-  * The site is designed with window responsiveness in mind. 
-  
+```bash
+go build -o nexus ./nexus_server
+./nexus -addr :8443 -db nexus.db
+```
 
-### IN BETWEEN TEXT EMOJIS
+Point clients at it by editing the server URL in Settings → Advanced.
 
-I wanted to go one step further in creating emojis by allowing the user to create emojis in between text. This required me to use a custom redux middleware in which I parse the incoming message text for certain emoji keywords. 
+## Downloads
 
-![alt text](docs/kissy.png)
+Pre-built binaries for Linux, macOS and Windows are attached to each
+[GitHub Release](../../releases). Grab the archive for your platform,
+unzip, run.
 
+## Build from source
 
-### Animated Emojis via canvas
+Requires Go 1.25+.
 
-These "gifs" are not what they seem to be. In order to create the in between text feature and to use the Skype emojis I love, I created animated canvas elements of the gifs as a React Component. The component, which I called Emoji, when mounted will use a ref of the canvas element and window.requestAnimationFrame() to animate the gif in all its smooth glory.
+```bash
+go build -o skype        ./native_client
+go build -o skype-nexus  ./nexus_server
+```
 
-### Window Responsivness
+Cross-compile:
 
-As a chatapp, I fully believe that the site should be responsive even though that was not a goal. That being said, I decided to copy pixel by pixel the responsive feature of the web skype app. 
+```bash
+GOOS=windows GOARCH=amd64 go build -o skype.exe ./native_client
+```
 
-![alt text](docs/responsive.png)
+## Assets
 
-### User Fuzzy Search
+`native_client/assets/` contains original Skype 7 sounds, the Tahoma
+font, and the UI sprite sheet used for presence dots, call buttons,
+and emoticons. These are extracted from the preserved installers in
+`research_files/`.
 
-My app has user fuzzy search included so that users can search for potential friends and then add them. Sadly enough, the add feature has not yet been implemented yet but I do plan to do so in the future.
+## License
 
-### Websockets
-
-Websockets are mainly used for messaging here but I added some more channels to extend for notifications in the future. When the user logs in, a React component manages configuring all socket connections. A connection for each room is made with the backend to authenticate users joining or sending messeges to rooms.
-
-
-
-
+MIT. See [LICENSE](LICENSE). Skype is a trademark of Microsoft — this
+project is an independent, non-commercial homage.
