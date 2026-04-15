@@ -1,5 +1,5 @@
 {
   "username": "Alex",
-  "server": "ws://127.0.0.1:8080/cable",
+  "server": "wss://skype7-reborn.fly.dev/cable",
   "compact_mode": false
 }

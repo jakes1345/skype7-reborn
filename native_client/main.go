@@ -1468,7 +1468,7 @@ func (s *SkypeApp) ShowLoginWindow() {
 	passwordEntry.SetPlaceHolder("Password")
 
 	serverEntry := widget.NewEntry()
-	serverEntry.SetText("ws://127.0.0.1:8080/cable")
+	serverEntry.SetText("wss://skype7-reborn.fly.dev/cable")
 
 	// Load saved credentials
 	var savedUser, savedServer string
@@ -1582,7 +1582,7 @@ func (s *SkypeApp) showRegistrationWindow(serverAddr string) {
 		// Connect temporarily to register
 		addr := serverAddr
 		if addr == "" {
-			addr = "ws://127.0.0.1:8080/cable"
+			addr = "wss://skype7-reborn.fly.dev/cable"
 		}
 		c, _, err := websocket.DefaultDialer.Dial(addr, nil)
 		if err != nil {
