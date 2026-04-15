@@ -670,6 +670,40 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ok","server":"skype-nexus","version":"1.0.0"}`))
 }
 
+const rootHTML = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Skype 7 Reborn — Nexus Server</title>
+<style>
+body{font-family:"Segoe UI",Tahoma,sans-serif;background:linear-gradient(180deg,#B3E5FC,#f5f7fa 240px);color:#333;margin:0;padding:60px 24px;text-align:center}
+h1{color:#005F8F;font-weight:300;font-size:48px;margin:0 0 8px}
+p{color:#666;font-size:17px;max-width:560px;margin:0 auto 12px}
+code{background:#fff;border:1px solid #d8dee5;padding:2px 6px;border-radius:3px;font-family:Consolas,monospace}
+a{color:#005F8F}
+.box{background:#fff;border:1px solid #d8dee5;border-radius:6px;padding:24px;max-width:560px;margin:32px auto;text-align:left}
+.ok{color:#2e7d32;font-weight:600}
+</style></head><body>
+<h1>Skype 7 Reborn</h1>
+<p>This is a <strong>Nexus relay server</strong>, not a website. There's nothing for you to click here.</p>
+<div class="box">
+<p><span class="ok">&#10003;</span> Server is online and accepting connections.</p>
+<p>Download the desktop client at <a href="https://jakes1345.github.io/skype7-reborn/">jakes1345.github.io/skype7-reborn</a>.</p>
+<p>Source code: <a href="https://github.com/jakes1345/skype7-reborn">github.com/jakes1345/skype7-reborn</a>.</p>
+<p>WebSocket endpoint: <code>wss://{{HOST}}/cable</code> &nbsp;&middot;&nbsp; Health: <a href="/health">/health</a></p>
+</div>
+</body></html>`
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	host := r.Host
+	if host == "" {
+		host = "skype7-reborn.fly.dev"
+	}
+	w.Write([]byte(strings.ReplaceAll(rootHTML, "{{HOST}}", host)))
+}
+
 // ---------- Main ----------
 
 func main() {
@@ -697,6 +731,7 @@ func main() {
 	}
 	server.initDB()
 
+	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/cable", server.handleConnections)
 	http.HandleFunc("/health", healthHandler)
 
