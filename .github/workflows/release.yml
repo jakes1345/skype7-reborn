@@ -14,7 +14,16 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: ubuntu-latest
+            target: windows
+          - os: macos-latest
+            target: darwin
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,17 +33,23 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Install Fyne build deps (Linux)
+      - name: Install Linux build deps
+        if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libgl1-mesa-dev xorg-dev libxkbcommon-dev \
-            libasound2-dev libpulse-dev
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libasound2-dev libpulse-dev
+
+      - name: Install Windows cross-compiler
+        if: matrix.target == 'windows'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
 
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean
+          args: release --clean --id skype --id skype-nexus
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_OWNER: ${{ github.repository_owner }}
+          CC: ${{ matrix.target == 'windows' && 'x86_64-w64-mingw32-gcc' || '' }}
