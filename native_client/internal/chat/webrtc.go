@@ -5,12 +5,57 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 )
+
+// iceServers returns the ICE server list used for every peer connection.
+// Defaults: Google STUN + Open Relay Project free TURN (works behind
+// symmetric NATs). Override any of the three via env vars for self-hosting:
+//
+//	SKYPE_TURN_URL   comma-separated list (e.g. "turn:turn.example.com:3478")
+//	SKYPE_TURN_USER  username
+//	SKYPE_TURN_PASS  credential
+//
+// If SKYPE_TURN_URL is set the default TURN servers are replaced, not merged.
+func iceServers() []webrtc.ICEServer {
+	servers := []webrtc.ICEServer{
+		{URLs: []string{"stun:stun.l.google.com:19302"}},
+	}
+
+	if custom := os.Getenv("SKYPE_TURN_URL"); custom != "" {
+		urls := strings.Split(custom, ",")
+		for i, u := range urls {
+			urls[i] = strings.TrimSpace(u)
+		}
+		servers = append(servers, webrtc.ICEServer{
+			URLs:           urls,
+			Username:       os.Getenv("SKYPE_TURN_USER"),
+			Credential:     os.Getenv("SKYPE_TURN_PASS"),
+			CredentialType: webrtc.ICECredentialTypePassword,
+		})
+		return servers
+	}
+
+	// Open Relay Project — free public TURN for open-source projects.
+	// https://www.metered.ca/tools/openrelay/
+	servers = append(servers, webrtc.ICEServer{
+		URLs: []string{
+			"turn:openrelay.metered.ca:80",
+			"turn:openrelay.metered.ca:443",
+			"turn:openrelay.metered.ca:443?transport=tcp",
+		},
+		Username:       "openrelayproject",
+		Credential:     "openrelayproject",
+		CredentialType: webrtc.ICECredentialTypePassword,
+	})
+	return servers
+}
 
 // CallManager handles Peer-to-Peer WebRTC connections
 type CallManager struct {
@@ -133,11 +178,7 @@ func (cm *CallManager) CreateOffer(peerName string, onICECandidate func(*webrtc.
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 
-	config := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
-		},
-	}
+	config := webrtc.Configuration{ICEServers: iceServers()}
 
 	pc, err := cm.API.NewPeerConnection(config)
 	if err != nil {
@@ -187,11 +228,7 @@ func (cm *CallManager) HandleOffer(peerName string, offerSDP string, onICECandid
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 
-	config := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
-		},
-	}
+	config := webrtc.Configuration{ICEServers: iceServers()}
 
 	pc, err := cm.API.NewPeerConnection(config)
 	if err != nil {
