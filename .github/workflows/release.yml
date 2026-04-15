@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+      - 'beta*'
+  release:
+    types: [published, prereleased]
+  workflow_dispatch:
 
 permissions:
   contents: write

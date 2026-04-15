@@ -57,6 +57,7 @@ release:
   github:
     owner: "{{ .Env.GITHUB_OWNER }}"
     name: skype7-reborn
+  mode: keep-existing
   draft: false
   prerelease: auto
   header: |
