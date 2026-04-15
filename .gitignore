@@ -47,3 +47,9 @@ research_files/Offline Session/
 # Research materials (too large for git, keep locally)
 research_files/
 native_client/assets/original_resources/
+
+# Built binaries (never commit)
+nexus_server/nexus-server
+nexus_server/skype-nexus
+native_client/native_client
+native_client/skype
