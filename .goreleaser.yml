@@ -2,13 +2,16 @@ version: 2
 
 project_name: skype7-reborn
 
+# No root go.mod — we're a workspace. Run tidy in each module instead.
 before:
   hooks:
-    - go mod tidy
+    - bash -c "cd native_client && go mod tidy"
+    - bash -c "cd nexus_server  && go mod tidy"
 
 builds:
   - id: skype
     main: ./native_client
+    dir: .
     binary: skype
     env:
       - CGO_ENABLED=0
@@ -19,6 +22,7 @@ builds:
 
   - id: skype-nexus
     main: ./nexus_server
+    dir: .
     binary: skype-nexus
     env:
       - CGO_ENABLED=0
@@ -37,7 +41,7 @@ archives:
       - native_client/assets/**/*
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: checksums.txt
