@@ -1,76 +1,45 @@
-# Skype 7 — Reborn in Go
+# TAZHER: Sovereign Communication Engine (Skype 7 Resurrection)
 
-A pixel-faithful remake of Skype 7 written entirely in Go. No Electron, no
-cgo, no Microsoft servers — just a native desktop client talking to a
-self-hostable relay.
+TAZHER is a high-performance, native-compiled reconstruction of the classic Skype 7.x experience. It is designed for **Sovereignty**, meaning it works regardless of whether central servers are online or offline.
 
-![status](https://img.shields.io/badge/status-alpha-orange)
-![go](https://img.shields.io/badge/go-1.25%2B-00ADD8)
-![platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey)
+## 🚀 The TAZHER Promise
+- **Native Go Core**: No Electron, no WINE. Light on RAM, fast on CPU.
+*   **Unified Mesh**: Combines a fast Nexus Cloud with a resilient P2P DHT and LAN mDNS discovery. You are never "offline."
+*   **Obsidian Aesthetics**: Premium glassmorphism UI that respects the classic Aero layout.
+*   **Bit-Perfect Audio**: Authentic wav triggers for every event.
 
-## What's in the box
+## 🛠 Features
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| **Obsidian UI** | ✅ Ready | Glassmorphism, Aero-inspired sidebar. |
+| **Unified Mesh** | ✅ Ready | Parallel dialer (Local + Cloud + P2P). |
+| **P2P Discovery** | ✅ Ready | DHT + LAN (mDNS) Hood Protocol. |
+| **Messaging** | ✅ Ready | Real-time chat with "Skype-Style" history. |
+| **Voice Calls** | 🚀 Ready | WebRTC with **Obsidian Call Overlay** and Pulse animations. |
+| **Security** | ✅ Ready | Email-backed Auth to prevent abuse. |
+| **Updates** | ✅ Ready | Global cloud-sync regardless of connection mode. |
 
-- **`native_client/`** — Fyne desktop app. Classic Skype 7 Aero UI,
-  emoticon parser, contacts, group chats, 1:1 and group voice calls,
-  file transfer, presence/mood, typing indicators, read receipts.
-- **`nexus_server/`** — Pure-Go WebSocket relay. bcrypt auth, SQLite
-  storage, friend requests, conversations, offline message delivery,
-  WebRTC signaling.
+## 🚀 Getting Started
 
-Voice uses WebRTC + PCMU (G.711 µ-law) @ 8 kHz with PulseAudio I/O on
-Linux. Everything is pure Go — no libopus, no libwebrtc, no cgo.
+TAZHER is a "Ship-it-all" package. 
 
-## Quick start
+### 1. Requirements
+- **Go 1.25+** (Required for modern libp2p networking).
 
+### 2. Launch the Unified Mesh
+To experience the full Tazher network locally:
 ```bash
-# 1. Run the relay
-go run ./nexus_server
-
-# 2. Run the client (in another terminal)
-go run ./native_client
+# Run the orchestrator
+./run_local_tazher.sh
 ```
+This will launch your own **Local Nexus Node** and the **Tazher Client**, which will connect to both your local node and the global mesh simultaneously.
 
-First launch prompts you to register. Passwords are bcrypt-hashed on
-the server and stored in the OS keyring on the client.
+## 🏗 Architecture
+TAZHER operates as a **Three-Layer Mesh**:
+1. **Layer 1: Nexus Cloud**: High-speed global relays for instant connectivity.
+2. **Layer 2: Local Nexus**: Personal/LAN nodes for private work centers.
+3. **Layer 3: P2P DHT**: The "Unstoppable" back-channel that finds peers even when all servers are seized.
 
-## Self-hosting the relay
+---
+*TAZHER is an independent preservation and communication project. "Don't stop til you've had enough."*
 
-```bash
-go build -o nexus ./nexus_server
-./nexus -addr :8443 -db nexus.db
-```
-
-Point clients at it by editing the server URL in Settings → Advanced.
-
-## Downloads
-
-Pre-built binaries for Linux, macOS and Windows are attached to each
-[GitHub Release](../../releases). Grab the archive for your platform,
-unzip, run.
-
-## Build from source
-
-Requires Go 1.25+.
-
-```bash
-go build -o skype        ./native_client
-go build -o skype-nexus  ./nexus_server
-```
-
-Cross-compile:
-
-```bash
-GOOS=windows GOARCH=amd64 go build -o skype.exe ./native_client
-```
-
-## Assets
-
-`native_client/assets/` contains original Skype 7 sounds, the Tahoma
-font, and the UI sprite sheet used for presence dots, call buttons,
-and emoticons. These are extracted from the preserved installers in
-`research_files/`.
-
-## License
-
-MIT. See [LICENSE](LICENSE). Skype is a trademark of Microsoft — this
-project is an independent, non-commercial homage.

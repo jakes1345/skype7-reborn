@@ -18,35 +18,48 @@ type AnimatedEmoji struct {
 	current  int
 }
 
-func NewAnimatedEmoji(path string) *AnimatedEmoji {
-	f, err := os.Open(path)
+// EmoticonMap defines the coordinates in the master spritesheet
+// Format: Shortcut -> {X, Y, Frames}
+var EmoticonMap = map[string]struct {
+	X, Y, Frames int
+}{
+	"(smile)": {0, 0, 32},
+	"(sad)":   {40, 0, 32},
+	"(wink)":  {80, 0, 32},
+	"(laugh)": {120, 0, 32},
+	"(cool)":  {160, 0, 32},
+	"(cake)":  {200, 40, 1}, // Example static
+}
+
+func NewAnimatedEmoji(shortcut string) *AnimatedEmoji {
+	coords, ok := EmoticonMap[shortcut]
+	if !ok {
+		return nil
+	}
+	
+	f, err := os.Open("assets/ui_master_spritesheet.png")
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 	img, _, _ := image.Decode(f)
 
-	// Skype 7 emojis were often 20x20 or 40x40 clusters in a strip
+	// Tazher 7 emojis were often 20x20 or 40x40 clusters in a strip
 	// Let's assume 40x40 for high fidelity
 	frameSize := 40
-	if img.Bounds().Dx() < 40 {
-		frameSize = img.Bounds().Dx()
-	}
-	frameCount := img.Bounds().Dy() / frameSize
-
 	e := &AnimatedEmoji{
-		frames: frameCount,
+		frames: coords.Frames,
 	}
 	e.ExtendBaseWidget(e)
 
 	// Animation loop
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
+		ticker := time.NewTicker(80 * time.Millisecond)
 		for range ticker.C {
 			e.current = (e.current + 1) % e.frames
 			
-			// Crop current frame
-			rect := image.Rect(0, e.current*frameSize, frameSize, (e.current+1)*frameSize)
+			// Crop current frame relative to starting coords
+			rect := image.Rect(coords.X, coords.Y + (e.current*frameSize), coords.X + frameSize, coords.Y + ((e.current+1)*frameSize))
 			if sub, ok := img.(interface {
 				SubImage(r image.Rectangle) image.Image
 			}); ok {

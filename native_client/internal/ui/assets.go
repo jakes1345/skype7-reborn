@@ -10,7 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// AeroSlicer extracts pixel-perfect UI elements from the original Skype 7
+// AeroSlicer extracts pixel-perfect UI elements from the original Tazher 7
 // master sprite sheet.
 type AeroSlicer struct {
 	MasterSheet image.Image
@@ -52,7 +52,7 @@ func (a *AeroSlicer) Slice(name string, x, y, w, h int) fyne.Resource {
 	return fyne.NewStaticResource(name, buf.Bytes())
 }
 
-// GetStatusIcon returns the Skype 7 presence dot for a given state.
+// GetStatusIcon returns the Tazher 7 presence dot for a given state.
 // Coordinates correspond to the 12x12 dots strip on the master spritesheet.
 func (a *AeroSlicer) GetStatusIcon(presence string) fyne.Resource {
 	var x int

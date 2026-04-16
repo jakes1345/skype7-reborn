@@ -1,42 +1,59 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"image/color"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
+	"github.com/pion/webrtc/v3"
+	"github.com/zalando/go-keyring"
+	_ "modernc.org/sqlite"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/gorilla/websocket"
-	_ "modernc.org/sqlite"
-	"github.com/pion/webrtc/v3"
-	"github.com/zalando/go-keyring"
-
-	"private-skype/internal/chat"
-	"private-skype/internal/ui"
-
+	"tazher-native/internal/chat"
+	"tazher-native/internal/p2p"
+	"tazher-native/internal/ui"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/speaker"
 	"github.com/faiface/beep/wav"
 )
 
-const keyringService = "private-skype"
+func humanSize(n int) string {
+	const k = 1024
+	if n < k {
+		return fmt.Sprintf("%d B", n)
+	}
+	if n < k*k {
+		return fmt.Sprintf("%.1f KB", float64(n)/k)
+	}
+	if n < k*k*k {
+		return fmt.Sprintf("%.1f MB", float64(n)/(k*k))
+	}
+	return fmt.Sprintf("%.1f GB", float64(n)/(k*k*k))
+}
+
+const (
+	Version        = "1.0.0-Tazher"
+	keyringService = "tazher-native"
+)
 
 // NexusMessage matches the Nexus server protocol
 type NexusMessage struct {
@@ -50,15 +67,18 @@ type NexusMessage struct {
 	Candidate string   `json:"candidate"`
 	Token     string   `json:"token"`
 	Error     string   `json:"error"`
-	ConvoID   string   `json:"convo_id,omitempty"`
+	Email       string   `json:"email,omitempty"`
+	Mood        string   `json:"mood,omitempty"`
+	DisplayName string   `json:"display_name,omitempty"`
+	ConvoID     string   `json:"convo_id,omitempty"`
 	ConvoName string   `json:"convo_name,omitempty"`
 	Members   []string `json:"members,omitempty"`
 }
 
-// SkypeApp holds all application state
-type SkypeApp struct {
+// TazherApp holds all application state
+type TazherApp struct {
 	App        fyne.App
-	MainWindow fyne.Window
+	MainWindow  fyne.Window
 
 	// Windows
 	ChatWindows map[string]fyne.Window
@@ -76,6 +96,7 @@ type SkypeApp struct {
 	Username string
 	Conn     *websocket.Conn
 	ConnMu   sync.Mutex
+	authChan chan bool
 
 	// UI State
 	ChatLogs         map[string]*fyne.Container
@@ -83,7 +104,7 @@ type SkypeApp struct {
 	SearchResult     *widget.List
 	ContactList      *widget.List
 	Discovered       []string
-	Friends          []FriendInfo
+	Friends          []ui.FriendInfo
 	PendingInbound   []string
 	AvatarPath       string
 	TypingTimers     map[string]*time.Timer
@@ -92,19 +113,23 @@ type SkypeApp struct {
 	UnreadCounts map[string]int
 
 	Calls *chat.CallManager
+
+	Slicer *ui.AeroSlicer
+
+	P2PNode      *p2p.TazherNode
+	Sidebar      fyne.CanvasObject
+	HomeView     fyne.CanvasObject
+	ContentStack *fyne.Container
 }
 
-type FriendInfo struct {
-	Username string
-	Status   string
-	Avatar   string
-}
+// Friends are stored as ui.FriendInfo to share with the sidebar
 
-func NewSkypeApp() *SkypeApp {
+
+func NewTazherApp() *TazherApp {
 	a := app.New()
 
 	home, _ := os.UserHomeDir()
-	dbDir := filepath.Join(home, ".private_skype")
+	dbDir := filepath.Join(home, ".private_tazher")
 	os.MkdirAll(dbDir, 0755)
 	dbPath := filepath.Join(dbDir, "main.db")
 
@@ -113,7 +138,7 @@ func NewSkypeApp() *SkypeApp {
 		log.Fatal(err)
 	}
 
-	// Create Skype 7 Compatible Schema
+	// Create Tazher 7 Compatible Schema
 	db.Exec(`CREATE TABLE IF NOT EXISTS Conversations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		identity TEXT UNIQUE,
@@ -135,7 +160,7 @@ func NewSkypeApp() *SkypeApp {
 	)`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS Contacts (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		skypename TEXT UNIQUE,
+		tazhername TEXT UNIQUE,
 		fullname TEXT,
 		displayname TEXT,
 		avatar_image BLOB,
@@ -160,7 +185,7 @@ func NewSkypeApp() *SkypeApp {
 		value TEXT
 	)`)
 
-	s := &SkypeApp{
+	s := &TazherApp{
 		App:              a,
 		ChatWindows:      make(map[string]fyne.Window),
 		CallWindows:      make(map[string]fyne.Window),
@@ -174,6 +199,14 @@ func NewSkypeApp() *SkypeApp {
 		Calls:            chat.NewCallManager(),
 	}
 
+	// Initialize Slicer with the master spritesheet
+	slicer, err := ui.NewAeroSlicer("assets/ui_master_spritesheet.png")
+	if err == nil {
+		s.Slicer = slicer
+	} else {
+		log.Printf("Failed to load spritesheet: %v", err)
+	}
+
 	s.Calls.OnFile = func(peerName string, fileName string, totalSize int, data []byte) {
 		home, _ := os.UserHomeDir()
 		downloadPath := filepath.Join(home, "Downloads", fileName)
@@ -182,7 +215,7 @@ func NewSkypeApp() *SkypeApp {
 			return
 		}
 
-		// Persist the transfer record (Skype-7-compatible schema)
+		// Persist the transfer record (Tazher-7-compatible schema)
 		s.DB.Exec(`INSERT INTO Transfers (type, partner_handle, partner_dispname, status, filename, filepath, filesize, bytestransferred)
 			VALUES (2, ?, ?, 8, ?, ?, ?, ?)`,
 			peerName, peerName, fileName, downloadPath, totalSize, len(data))
@@ -203,12 +236,34 @@ func NewSkypeApp() *SkypeApp {
 		}
 	}
 
+	// Initialize P2P DHT Node
+	p2pCtx := context.Background()
+	p2pNode, err := p2p.NewTazherNode(p2pCtx, 0) // Random port
+	if err == nil {
+		s.P2PNode = p2pNode
+		// Use standard libp2p bootstrap nodes for now
+		go s.P2PNode.Bootstrap(p2p.DefaultBootstrapNodes)
+		
+		// Setup handler to process incoming P2P signaling (NexusMessages)
+		s.P2PNode.SetupSignalingHandler(func(raw interface{}) {
+			// Convert back to NexusMessage
+			data, _ := json.Marshal(raw)
+			var msg NexusMessage
+			json.Unmarshal(data, &msg)
+			
+			// Process as if it came from the server
+			s.HandleIncomingMessage(msg)
+		})
+	} else {
+		log.Printf("Failed to start P2P node: %v", err)
+	}
+
 	return s
 }
 
 // ---------- Network ----------
 
-func (s *SkypeApp) ConnectToServer() error {
+func (s *TazherApp) ConnectToServer(password string) error {
 	s.ConnMu.Lock()
 	defer s.ConnMu.Unlock()
 
@@ -216,34 +271,90 @@ func (s *SkypeApp) ConnectToServer() error {
 		s.Conn.Close()
 	}
 
-	c, _, err := websocket.DefaultDialer.Dial(s.ServerAddress, nil)
+	// Single Mesh discovery: Dial Global and Local in parallel
+	targets := []string{
+		"ws://localhost:8080/cable",
+		"wss://tazher7-reborn.fly.dev/cable",
+	}
+	
+	// If user manually set a different server, prioritize it
+	if s.ServerAddress != "" && !strings.Contains(s.ServerAddress, "localhost") && !strings.Contains(s.ServerAddress, "fly.dev") {
+		targets = append([]string{s.ServerAddress}, targets...)
+	}
+
+	var c *websocket.Conn
+	var err error
+	for _, addr := range targets {
+		log.Printf("[Mesh] Attempting connection to %s...", addr)
+		c, _, err = websocket.DefaultDialer.Dial(addr, nil)
+		if err == nil {
+			s.ServerAddress = addr
+			log.Printf("[Mesh] Connected via %s", addr)
+			break
+		}
+	}
+
 	if err != nil {
-		return fmt.Errorf("connection failed: %w", err)
+		return fmt.Errorf("could not reach any Tazher Nexus: %w", err)
 	}
 	s.Conn = c
 
-	// Load password from OS keyring (never persisted in plaintext)
-	password, err := keyring.Get(keyringService, s.Username)
-	if err != nil {
-		password = ""
-	}
+	// Setup auth channel for handshake
+	s.authChan = make(chan bool, 1)
 
 	auth := NexusMessage{Type: "auth", Sender: s.Username, Body: password}
 	s.Conn.WriteJSON(auth)
 
 	go s.ReadLoop()
-	return nil
-}
 
-func (s *SkypeApp) SendMessage(msg NexusMessage) {
-	s.ConnMu.Lock()
-	defer s.ConnMu.Unlock()
-	if s.Conn != nil {
-		s.Conn.WriteJSON(msg)
+	// Wait for auth_result (timeout 5s)
+	// We unlock briefly so ReadLoop can process the result if it comes fast
+	s.ConnMu.Unlock()
+	defer s.ConnMu.Lock()
+
+	select {
+	case success := <-s.authChan:
+		if !success {
+			return fmt.Errorf("invalid username or password")
+		}
+		s.PlaySound("Login.wav")
+		
+		// Announce on DHT
+		if s.P2PNode != nil {
+			go s.P2PNode.Announce(s.Username)
+		}
+		
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("authentication timeout")
 	}
 }
 
-func (s *SkypeApp) ReadLoop() {
+func (s *TazherApp) SendMessage(msg NexusMessage) {
+	s.ConnMu.Lock()
+	conn := s.Conn
+	s.ConnMu.Unlock()
+
+	sent := false
+	if conn != nil {
+		if err := conn.WriteJSON(msg); err == nil {
+			sent = true
+		}
+	}
+
+	if !sent && s.P2PNode != nil && msg.Recipient != "" {
+		log.Printf("[P2P] Nexus down or send failed; attempting direct signaling to %s", msg.Recipient)
+		go func() {
+			if err := s.P2PNode.SendSignaling(msg.Recipient, msg); err != nil {
+				log.Printf("[P2P] Failed to send to %s: %v", msg.Recipient, err)
+			} else {
+				log.Printf("[P2P] Successfully delivered message to %s", msg.Recipient)
+			}
+		}()
+	}
+}
+
+func (s *TazherApp) ReadLoop() {
 	for {
 		var msg NexusMessage
 		err := s.Conn.ReadJSON(&msg)
@@ -257,7 +368,8 @@ func (s *SkypeApp) ReadLoop() {
 						time.Sleep(30 * time.Second)
 					}
 					log.Printf("Reconnect attempt %d...", i+1)
-					if err := s.ConnectToServer(); err == nil {
+					pass, _ := keyring.Get(keyringService, s.Username)
+					if err := s.ConnectToServer(pass); err == nil {
 						log.Println("Reconnected!")
 						return
 					}
@@ -267,170 +379,180 @@ func (s *SkypeApp) ReadLoop() {
 			return
 		}
 
-		switch msg.Type {
-		case "auth_result":
-			if msg.Error != "" {
-				log.Println("Auth failed:", msg.Error)
-			} else {
-				log.Println("Authenticated as", msg.Sender)
+		s.HandleIncomingMessage(msg)
+	}
+}
+
+func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
+	switch msg.Type {
+	case "auth_result":
+		if msg.Error != "" || msg.Status == "failed" {
+			log.Println("Auth failed:", msg.Error)
+			select {
+			case s.authChan <- false:
+			default:
 			}
-
-		case "msg":
-			s.PlaySound("MessageReceived.wav")
-			ts := time.Now().Unix()
-			s.DB.Exec("INSERT INTO Messages (chatname, author, body_xml, timestamp, type) VALUES (?, ?, ?, ?, 61)", 
-				msg.Sender, msg.Sender, msg.Body, ts)
-
-			if logContainer, ok := s.ChatLogs[msg.Sender]; ok {
-				logContainer.Add(ui.NewMessageBubble(msg.Sender, msg.Body, false))
-				logContainer.Refresh()
-			} else {
-				s.UnreadCounts[msg.Sender]++
-				s.App.SendNotification(fyne.NewNotification(
-					"Message from "+msg.Sender,
-					msg.Body,
-				))
+		} else {
+			log.Println("Authenticated as", msg.Sender)
+			select {
+			case s.authChan <- true:
+			default:
 			}
+		}
 
-		case "typing":
-			if lbl, ok := s.ChatTypingLabels[msg.Sender]; ok {
-				lbl.SetText(msg.Sender + " is typing...")
-				lbl.Show()
-				if timer, tok := s.TypingTimers[msg.Sender]; tok {
-					timer.Stop()
-				}
-				s.TypingTimers[msg.Sender] = time.AfterFunc(3*time.Second, func() {
-					lbl.Hide()
-				})
-			}
+	case "msg":
+		s.PlaySound("MessageReceived.wav")
+		ts := time.Now().Unix()
+		s.DB.Exec("INSERT INTO Messages (chatname, author, body_xml, timestamp, type) VALUES (?, ?, ?, ?, 61)",
+			msg.Sender, msg.Sender, msg.Body, ts)
 
-		case "search_results":
-			s.Discovered = msg.Results
-			if s.SearchResult != nil {
-				s.SearchResult.Refresh()
-			}
-
-		case "presence", "friend_status":
-			s.updateFriendStatus(msg.Sender, msg.Status)
-
-		case "friend_request":
-			s.PlaySound("MessageReceived.wav")
-			s.PendingInbound = append(s.PendingInbound, msg.Sender)
+		if logContainer, ok := s.ChatLogs[msg.Sender]; ok {
+			logContainer.Add(ui.NewMessageBubble(msg.Sender, msg.Body, false))
+			logContainer.Refresh()
+		} else {
+			s.UnreadCounts[msg.Sender]++
 			s.App.SendNotification(fyne.NewNotification(
-				"Friend Request",
-				msg.Sender+" wants to add you as a contact",
+				"Message from "+msg.Sender,
+				msg.Body,
 			))
-			if s.MainWindow != nil {
-				s.showFriendRequestDialog(msg.Sender)
-			}
+		}
 
-		case "friend_accepted":
-			s.PlaySound("MessageReceived.wav")
-			s.DB.Exec("INSERT OR IGNORE INTO Contacts (skypename, status) VALUES (?, 'Online')", msg.Sender)
-			s.loadFriends()
-			if s.ContactList != nil {
-				s.ContactList.Refresh()
+	case "typing":
+		if lbl, ok := s.ChatTypingLabels[msg.Sender]; ok {
+			lbl.SetText(msg.Sender + " is typing...")
+			lbl.Show()
+			if timer, tok := s.TypingTimers[msg.Sender]; tok {
+				timer.Stop()
 			}
+			s.TypingTimers[msg.Sender] = time.AfterFunc(3*time.Second, func() {
+				lbl.Hide()
+			})
+		}
+
+	case "search_results":
+		s.Discovered = msg.Results
+		if s.SearchResult != nil {
+			s.SearchResult.Refresh()
+		}
+
+	case "presence", "friend_status":
+		s.updateFriendStatus(msg.Sender, msg.Status)
+
+	case "friend_request":
+		s.PlaySound("MessageReceived.wav")
+		s.PendingInbound = append(s.PendingInbound, msg.Sender)
+		s.App.SendNotification(fyne.NewNotification(
+			"Friend Request",
+			msg.Sender+" wants to add you as a contact",
+		))
+		if s.MainWindow != nil {
+			s.showFriendRequestDialog(msg.Sender)
+		}
+
+	case "friend_accepted":
+		s.PlaySound("MessageReceived.wav")
+		s.DB.Exec("INSERT OR IGNORE INTO Contacts (tazhername, status) VALUES (?, 'Online')", msg.Sender)
+		s.loadFriends()
+		if s.ContactList != nil {
+			s.ContactList.Refresh()
+		}
+		s.App.SendNotification(fyne.NewNotification(
+			"Friend Added",
+			msg.Sender+" accepted your friend request",
+		))
+
+	case "pending_requests":
+		s.PendingInbound = msg.Results
+		for _, requester := range msg.Results {
+			s.showFriendRequestDialog(requester)
+		}
+
+	case "call_offer":
+		s.PlaySound("CallIncoming.wav")
+		s.showIncomingCallDialog(msg.Sender, msg.SDP)
+
+	case "call_answer":
+		log.Printf("Call answered by %s", msg.Sender)
+		s.Calls.HandleAnswer(msg.Sender, msg.SDP)
+
+	case "call_reject", "call_end":
+		if win, ok := s.CallWindows[msg.Sender]; ok {
+			win.Close()
+			delete(s.CallWindows, msg.Sender)
+		}
+		s.Calls.EndCall(msg.Sender)
+
+	case "call_error":
+		s.App.SendNotification(fyne.NewNotification("Call Failed", msg.Error))
+
+	case "ice_candidate":
+		log.Printf("ICE candidate from %s", msg.Sender)
+		s.Calls.AddICECandidate(msg.Sender, msg.Candidate)
+
+	case "msg_status":
+		if msg.Body == "delivered_offline" {
+			log.Printf("Message to %s stored for offline delivery", msg.Sender)
+		}
+
+	case "kicked":
+		s.App.SendNotification(fyne.NewNotification("Tazher", msg.Body))
+		log.Println("Kicked:", msg.Body)
+
+	case "friend_removed":
+		s.DB.Exec("DELETE FROM Contacts WHERE tazhername = ?", msg.Sender)
+		s.loadFriends()
+		if s.ContactList != nil {
+			s.ContactList.Refresh()
+		}
+
+	case "convo_info", "convo_created":
+		s.DB.Exec(`INSERT OR REPLACE INTO Conversations (identity, displayname, type)
+			VALUES (?, ?, 2)`, msg.ConvoID, msg.ConvoName)
+		if msg.Type == "convo_created" {
 			s.App.SendNotification(fyne.NewNotification(
-				"Friend Added",
-				msg.Sender+" accepted your friend request",
+				"New Group Chat",
+				msg.Sender+" added you to "+msg.ConvoName,
 			))
+		}
 
-		case "pending_requests":
-			s.PendingInbound = msg.Results
-			for _, requester := range msg.Results {
-				s.showFriendRequestDialog(requester)
-			}
+	case "convo_msg":
+		s.PlaySound("MessageReceived.wav")
+		ts := time.Now().Unix()
+		s.DB.Exec(`INSERT INTO Messages (chatname, author, body_xml, timestamp, type)
+			VALUES (?, ?, ?, ?, 61)`, msg.ConvoID, msg.Sender, msg.Body, ts)
+		if logContainer, ok := s.ChatLogs[msg.ConvoID]; ok {
+			logContainer.Add(ui.NewMessageBubble(msg.Sender, msg.Body, false))
+			logContainer.Refresh()
+		} else {
+			s.UnreadCounts[msg.ConvoID]++
+			s.App.SendNotification(fyne.NewNotification(
+				msg.Sender+" in group",
+				msg.Body,
+			))
+		}
 
-		case "call_offer":
-			s.PlaySound("CallIncoming.wav")
-			s.showIncomingCallDialog(msg.Sender, msg.SDP)
+	case "convo_left":
+		if logContainer, ok := s.ChatLogs[msg.ConvoID]; ok {
+			logContainer.Add(ui.NewMessageBubble("system", msg.Sender+" left the conversation", false))
+			logContainer.Refresh()
+		}
 
-		case "call_answer":
-			log.Printf("Call answered by %s", msg.Sender)
-			s.Calls.HandleAnswer(msg.Sender, msg.SDP)
-			// WebRTC answer received - in a full implementation this connects the media
+	case "read_receipt":
+		log.Printf("%s read our message %s", msg.Sender, msg.Body)
 
-		case "call_reject", "call_end":
-			if win, ok := s.CallWindows[msg.Sender]; ok {
-				win.Close()
-				delete(s.CallWindows, msg.Sender)
-			}
-			s.Calls.EndCall(msg.Sender)
-
-		case "call_error":
-			s.App.SendNotification(fyne.NewNotification("Call Failed", msg.Error))
-
-		case "ice_candidate":
-			log.Printf("ICE candidate from %s", msg.Sender)
-			s.Calls.AddICECandidate(msg.Sender, msg.Candidate)
-
-		case "msg_status":
-			if msg.Body == "delivered_offline" {
-				log.Printf("Message to %s stored for offline delivery", msg.Sender)
-			}
-
-		case "kicked":
-			s.App.SendNotification(fyne.NewNotification("Skype", msg.Body))
-			log.Println("Kicked:", msg.Body)
-
-		case "friend_removed":
-			s.DB.Exec("DELETE FROM Contacts WHERE skypename = ?", msg.Sender)
-			s.loadFriends()
-			if s.ContactList != nil {
-				s.ContactList.Refresh()
-			}
-
-		case "convo_info", "convo_created":
-			s.DB.Exec(`INSERT OR REPLACE INTO Conversations (identity, displayname, type)
-				VALUES (?, ?, 2)`, msg.ConvoID, msg.ConvoName)
-			if msg.Type == "convo_created" {
-				s.App.SendNotification(fyne.NewNotification(
-					"New Group Chat",
-					msg.Sender+" added you to "+msg.ConvoName,
-				))
-			}
-
-		case "convo_msg":
-			s.PlaySound("MessageReceived.wav")
-			ts := time.Now().Unix()
-			s.DB.Exec(`INSERT INTO Messages (chatname, author, body_xml, timestamp, type)
-				VALUES (?, ?, ?, ?, 61)`, msg.ConvoID, msg.Sender, msg.Body, ts)
-			if logContainer, ok := s.ChatLogs[msg.ConvoID]; ok {
-				logContainer.Add(ui.NewMessageBubble(msg.Sender, msg.Body, false))
-				logContainer.Refresh()
-			} else {
-				s.UnreadCounts[msg.ConvoID]++
-				s.App.SendNotification(fyne.NewNotification(
-					msg.Sender+" in group",
-					msg.Body,
-				))
-			}
-
-		case "convo_left":
-			if logContainer, ok := s.ChatLogs[msg.ConvoID]; ok {
-				logContainer.Add(ui.NewMessageBubble("system", msg.Sender+" left the conversation", false))
-				logContainer.Refresh()
-			}
-
-		case "read_receipt":
-			// Body holds the message id/timestamp acknowledged; surface it in UI if we want.
-			log.Printf("%s read our message %s", msg.Sender, msg.Body)
-
-		case "register_result":
-			if msg.Error != "" {
-				log.Println("Registration failed:", msg.Error)
-			} else {
-				log.Println("Registration successful")
-			}
+	case "register_result":
+		if msg.Error != "" {
+			log.Println("Registration failed:", msg.Error)
+		} else {
+			log.Println("Registration successful")
 		}
 	}
 }
 
 // ---------- Friend Management ----------
 
-func (s *SkypeApp) updateFriendStatus(username, status string) {
-	s.DB.Exec("UPDATE Contacts SET status = ? WHERE skypename = ?", status, username)
+func (s *TazherApp) updateFriendStatus(username, status string) {
+	s.DB.Exec("UPDATE Contacts SET status = ? WHERE tazhername = ?", status, username)
 	for i, f := range s.Friends {
 		if f.Username == username {
 			s.Friends[i].Status = status
@@ -442,9 +564,9 @@ func (s *SkypeApp) updateFriendStatus(username, status string) {
 	}
 }
 
-func (s *SkypeApp) loadFriends() {
+func (s *TazherApp) loadFriends() {
 	s.Friends = nil
-	rows, err := s.DB.Query("SELECT skypename, COALESCE(status, 'Offline'), COALESCE(avatar_path, '') FROM Contacts ORDER BY status DESC, skypename ASC")
+	rows, err := s.DB.Query("SELECT tazhername, COALESCE(status, 'Offline'), COALESCE(avatar_path, '') FROM Contacts ORDER BY status DESC, tazhername ASC")
 	if err != nil {
 		return
 	}
@@ -457,7 +579,7 @@ func (s *SkypeApp) loadFriends() {
 	}
 }
 
-func (s *SkypeApp) showFriendRequestDialog(from string) {
+func (s *TazherApp) showFriendRequestDialog(from string) {
 	if s.MainWindow == nil {
 		return
 	}
@@ -466,7 +588,7 @@ func (s *SkypeApp) showFriendRequestDialog(from string) {
 		func(accept bool) {
 			if accept {
 				s.SendMessage(NexusMessage{Type: "friend_accept", Sender: from})
-				s.DB.Exec("INSERT OR IGNORE INTO Contacts (skypename, status) VALUES (?, 'Online')", from)
+				s.DB.Exec("INSERT OR IGNORE INTO Contacts (tazhername, status) VALUES (?, 'Online')", from)
 				s.loadFriends()
 				if s.ContactList != nil {
 					s.ContactList.Refresh()
@@ -484,7 +606,7 @@ func (s *SkypeApp) showFriendRequestDialog(from string) {
 		}, s.MainWindow)
 }
 
-func (s *SkypeApp) removeContact(name string) {
+func (s *TazherApp) removeContact(name string) {
 	dialog.ShowConfirm("Remove Contact",
 		"Remove "+name+" from your contacts?",
 		func(ok bool) {
@@ -496,7 +618,7 @@ func (s *SkypeApp) removeContact(name string) {
 				Sender:    s.Username,
 				Recipient: name,
 			})
-			s.DB.Exec("DELETE FROM Contacts WHERE skypename = ?", name)
+			s.DB.Exec("DELETE FROM Contacts WHERE tazhername = ?", name)
 			s.loadFriends()
 			if s.ContactList != nil {
 				s.ContactList.Refresh()
@@ -506,7 +628,7 @@ func (s *SkypeApp) removeContact(name string) {
 
 // ---------- Sound ----------
 
-func (s *SkypeApp) PlaySound(name string) {
+func (s *TazherApp) PlaySound(name string) {
 	if !s.SoundEnabled {
 		return
 	}
@@ -542,7 +664,7 @@ func (s *SkypeApp) PlaySound(name string) {
 // ---------- Calling ----------
 
 // StartCall is the *caller* path: build PC, send offer, open call window.
-func (s *SkypeApp) StartCall(name string) {
+func (s *TazherApp) StartCall(name string) {
 	if _, exists := s.CallWindows[name]; exists {
 		return
 	}
@@ -573,14 +695,14 @@ func (s *SkypeApp) StartCall(name string) {
 }
 
 // AnswerCall is the *callee* path: PC already built via HandleOffer; just open window.
-func (s *SkypeApp) AnswerCall(name string) {
+func (s *TazherApp) AnswerCall(name string) {
 	if _, exists := s.CallWindows[name]; exists {
 		return
 	}
 	s.openCallWindow(name, "Connecting...")
 }
 
-func (s *SkypeApp) openCallWindow(name, initialStatus string) {
+func (s *TazherApp) openCallWindow(name, initialStatus string) {
 	callWin := s.App.NewWindow("Call: " + name)
 	callWin.Resize(fyne.NewSize(300, 450))
 	callWin.SetFixedSize(true)
@@ -667,52 +789,54 @@ func (s *SkypeApp) openCallWindow(name, initialStatus string) {
 	}()
 }
 
-func (s *SkypeApp) showIncomingCallDialog(from, sdp string) {
+func (s *TazherApp) showIncomingCallDialog(from, sdp string) {
 	if s.MainWindow == nil {
 		return
 	}
-	dialog.ShowConfirm("Incoming Call",
-		from+" is calling you. Answer?",
-		func(answer bool) {
-			if answer {
-				_, answerSDP, _ := s.Calls.HandleOffer(from, sdp, func(c *webrtc.ICECandidate) {
-					candidateBytes, _ := json.Marshal(c.ToJSON())
-					s.SendMessage(NexusMessage{
-						Type:      "ice_candidate",
-						Sender:    s.Username,
-						Recipient: from,
-						Candidate: string(candidateBytes),
-					})
-				})
-				s.SendMessage(NexusMessage{
-					Type:      "call_answer",
-					Sender:    s.Username,
-					Recipient: from,
-					SDP:       answerSDP,
-				})
-				s.AnswerCall(from)
-			} else {
-				s.SendMessage(NexusMessage{
-					Type:      "call_reject",
-					Sender:    s.Username,
-					Recipient: from,
-				})
-			}
-		}, s.MainWindow)
+	
+	s.PlaySound("CallIncoming.wav")
+	
+	win := s.App.NewWindow("Incoming Call")
+	win.Resize(fyne.NewSize(350, 500))
+	win.SetFixedSize(true)
+
+	overlay := ui.NewCallOverlay(from, s.getFriendAvatar(from), true)
+	overlay.OnAnswer = func() {
+		_, answerSDP, _ := s.Calls.HandleOffer(from, sdp, func(c *webrtc.ICECandidate) {
+			candidateBytes, _ := json.Marshal(c.ToJSON())
+			s.SendMessage(NexusMessage{
+				Type:      "ice_candidate",
+				Sender:    s.Username,
+				Recipient: from,
+				Candidate: string(candidateBytes),
+			})
+		})
+		s.SendMessage(NexusMessage{
+			Type:      "call_answer",
+			Sender:    s.Username,
+			Recipient: from,
+			SDP:       answerSDP,
+		})
+		s.AnswerCall(from)
+		win.Close()
+	}
+	overlay.OnReject = func() {
+		s.SendMessage(NexusMessage{
+			Type:      "call_reject",
+			Sender:    s.Username,
+			Recipient: from,
+		})
+		win.Close()
+	}
+
+	win.SetContent(overlay.Render())
+	win.Show()
 }
 
 // ---------- Chat Window ----------
 
-func (s *SkypeApp) OpenChatWindow(name string) {
-	if win, ok := s.ChatWindows[name]; ok {
-		win.RequestFocus()
-		return
-	}
-
-	// Clear unread count
-	delete(s.UnreadCounts, name)
-
-	// Determine if this is a group conversation
+func (s *TazherApp) OpenChatWindow(name string) {
+	// Standardize title/identity
 	var isGroup bool
 	var convoName string
 	s.DB.QueryRow("SELECT displayname FROM Conversations WHERE identity = ? AND type = 2", name).Scan(&convoName)
@@ -720,483 +844,94 @@ func (s *SkypeApp) OpenChatWindow(name string) {
 		isGroup = true
 	}
 
-	// Send read receipt for the latest message we've seen in this thread
-	if !isGroup {
-		var lastTS int64
-		s.DB.QueryRow("SELECT COALESCE(MAX(timestamp), 0) FROM Messages WHERE chatname = ?", name).Scan(&lastTS)
-		if lastTS > 0 {
-			s.SendMessage(NexusMessage{
-				Type:      "read_receipt",
-				Sender:    s.Username,
-				Recipient: name,
-				Body:      fmt.Sprintf("%d", lastTS),
-			})
-		}
-	}
-
-	title := "Chat: " + name
+	title := name
 	if isGroup {
-		title = "Group: " + convoName
+		title = convoName
 	}
-	win := s.App.NewWindow(title)
-	win.SetOnClosed(func() {
-		delete(s.ChatWindows, name)
-		delete(s.ChatLogs, name)
-	})
-	win.Resize(fyne.NewSize(600, 500))
 
+	// 1. Prepare chat logic
 	historyContainer := container.NewVBox()
 	s.ChatLogs[name] = historyContainer
 
-	// Load history from DB
+	// Load history
 	rows, err := s.DB.Query("SELECT author, body_xml FROM Messages WHERE chatname = ? ORDER BY timestamp ASC", name)
 	if err == nil {
 		for rows.Next() {
 			var author, body string
 			rows.Scan(&author, &body)
-			isMe := author == "Me"
+			isMe := author == s.Username
 			historyContainer.Add(ui.NewMessageBubble(author, body, isMe))
 		}
 		rows.Close()
 	}
 
+	scroll := container.NewVScroll(historyContainer)
+
+	// Status indicator
+	serverStatus := "TAZHER Unified Mesh"
+	if strings.Contains(s.ServerAddress, "localhost") {
+		serverStatus = "TAZHER: Local Node"
+	}
+	statusLabel := widget.NewLabelWithStyle(serverStatus, fyne.TextAlignCenter, fyne.TextStyle{Italic: true})
+
 	// Typing indicator
 	typingLabel := widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Italic: true})
+	s.ChatTypingLabels[name] = typingLabel
 	typingLabel.Hide()
 
-	input := widget.NewMultiLineEntry()
-	input.SetPlaceHolder("Type a message...")
-	input.Wrapping = fyne.TextWrapWord
-	input.SetMinRowsVisible(2)
-
-	// Typing indicator: send at most once per 2s while actively typing.
-	var lastTypingSent time.Time
-	input.OnChanged = func(val string) {
-		if val == "" {
-			return
-		}
-		if time.Since(lastTypingSent) < 2*time.Second {
-			return
-		}
-		lastTypingSent = time.Now()
-		s.SendMessage(NexusMessage{
-			Type:      "typing",
-			Sender:    s.Username,
-			Recipient: name,
-		})
-	}
-
-	sendMsg := func() {
-		if strings.TrimSpace(input.Text) == "" {
-			return
-		}
-		body := input.Text
-
-		// Save to local DB
-		ts := time.Now().Unix()
-		s.DB.Exec("INSERT INTO Messages (chatname, author, body_xml, timestamp, type) VALUES (?, ?, ?, ?, 61)", name, "Me", body, ts)
-
-		// Send to server (1:1 or group)
-		if isGroup {
-			s.SendMessage(NexusMessage{
-				Type:    "convo_msg",
-				Sender:  s.Username,
-				ConvoID: name,
-				Body:    body,
-			})
-		} else {
-			s.SendMessage(NexusMessage{
-				Type:      "msg",
-				Sender:    s.Username,
-				Recipient: name,
-				Body:      body,
-			})
-		}
-
-		// Render in UI
-		historyContainer.Add(ui.NewMessageBubble("Me", body, true))
-		input.SetText("")
-	}
-
-	sendBtn := widget.NewButton("Send", sendMsg)
-	sendBtn.Importance = widget.HighImportance
-
-	callBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
-		s.StartCall(name)
-	})
-
-	fileBtn := widget.NewButtonWithIcon("", theme.FileIcon(), func() {
-		fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-			if err == nil && reader != nil {
-				data, _ := os.ReadFile(reader.URI().Path())
-				if err := s.Calls.SendFile(name, reader.URI().Name(), data); err != nil {
-					log.Printf("SendFile: %v", err)
-					dialog.ShowError(err, win)
-					return
-				}
-				label := "[Sent File: " + reader.URI().Name() + "]"
-				ts := time.Now().Unix()
-				s.DB.Exec(`INSERT INTO Messages (chatname, author, body_xml, timestamp, type)
-					VALUES (?, ?, ?, ?, 68)`, name, "Me", label, ts)
-				s.DB.Exec(`INSERT INTO Transfers (type, partner_handle, partner_dispname, status, filename, filepath, filesize, bytestransferred)
-					VALUES (1, ?, ?, 8, ?, ?, ?, ?)`,
-					name, name, reader.URI().Name(), reader.URI().Path(), len(data), len(data))
-				historyContainer.Add(ui.NewMessageBubble("Me", label, true))
+	chatProps := ui.ChatViewProps{
+		Name:    title,
+		Status:  "Active now", // TODO: Get real status
+		IsGroup: isGroup,
+		OnCall:  func() { s.StartCall(name) },
+		OnSend: func(text string) {
+			if strings.TrimSpace(text) == "" {
+				return
 			}
-		}, win)
-		fd.Show()
-	})
+			body := text
+			if strings.HasPrefix(text, "/me ") {
+				body = "* " + s.Username + " " + strings.TrimPrefix(text, "/me ")
+			}
+			s.SendMessage(NexusMessage{Type: "msg", Sender: s.Username, Recipient: name, Body: body})
+			historyContainer.Add(ui.NewMessageBubble(s.Username, body, true))
+			scroll.ScrollToBottom()
+		},
+		OnSendFile: func() {
+			fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+				if err == nil && reader != nil {
+					data, _ := io.ReadAll(reader)
+					fileName := reader.URI().Name()
+					s.Calls.SendFile(name, fileName, data)
+				}
+			}, s.MainWindow)
+			fd.Show()
+		},
+	}
 
-	// Header
-	blueHeader := container.NewStack(
-		canvas.NewRectangle(ui.SkypeBlue),
-		container.NewPadded(container.NewHBox(
-			ui.NewAvatarWithStatus(24, s.getFriendStatus(name), s.getFriendAvatar(name)),
-			widget.NewLabelWithStyle(name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			layout.NewSpacer(),
-			fileBtn,
-			callBtn,
-		)),
-	)
+	chatView := ui.NewChatView(chatProps)
+	// Inject the real scroll into the ChatView placeholder
+	chatView.Objects[1].(*fyne.Container).Objects[0] = container.NewBorder(nil, container.NewVBox(statusLabel, typingLabel), nil, nil, scroll)
 
-	inputBar := container.NewBorder(nil, nil, nil, sendBtn, input)
-
-	content := container.NewBorder(
-		blueHeader,
-		container.NewVBox(typingLabel, container.NewPadded(inputBar)),
-		nil, nil,
-		container.NewScroll(historyContainer),
-	)
-
-	win.SetContent(content)
-	s.ChatWindows[name] = win
-	s.ChatTypingLabels[name] = typingLabel
-	win.Show()
+	s.ContentStack.Objects = []fyne.CanvasObject{chatView}
+	s.ContentStack.Refresh()
 }
 
-func (s *SkypeApp) getFriendStatus(name string) string {
-	for _, f := range s.Friends {
-		if f.Username == name {
-			return f.Status
-		}
-	}
-	return "Offline"
-}
 
-func (s *SkypeApp) getFriendAvatar(name string) string {
-	for _, f := range s.Friends {
-		if f.Username == name {
-			return f.Avatar
-		}
-	}
-	return ""
-}
-
-// ---------- Main Window ----------
-
-func (s *SkypeApp) ShowMainWindow() {
-	if s.MainWindow == nil {
-		s.MainWindow = s.App.NewWindow("Skype™ 7.40 (Classic)")
-		s.MainWindow.Resize(fyne.NewSize(1000, 700))
-
-		skypeMenu := fyne.NewMenu("Skype",
-			fyne.NewMenuItem("Online Status", nil),
-			fyne.NewMenuItemSeparator(),
-			fyne.NewMenuItem("Profile", nil),
-			fyne.NewMenuItem("Privacy", nil),
-			fyne.NewMenuItemSeparator(),
-			fyne.NewMenuItem("Sign Out", func() {
-				s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: "Offline"})
-				if s.Conn != nil {
-					s.Conn.Close()
-				}
-				s.MainWindow.Close()
-				s.MainWindow = nil
-				s.ShowLoginWindow()
-			}),
-			fyne.NewMenuItem("Compact View", func() {
-				s.CompactMode = !s.CompactMode
-			}),
-			fyne.NewMenuItem("Quit Skype", func() {
-				s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: "Offline"})
-				s.App.Quit()
-			}),
-			fyne.NewMenuItemSeparator(),
-			fyne.NewMenuItem("Close to Tray", func() { s.MainWindow.Hide() }),
-		)
-		contactsMenu := fyne.NewMenu("Contacts",
-			fyne.NewMenuItem("Add Contact", func() {
-				s.showAddContactDialog()
-			}),
-			fyne.NewMenuItem("New Group Chat...", func() {
-				s.showNewGroupDialog()
-			}),
-		)
-		toolsMenu := fyne.NewMenu("Tools",
-			fyne.NewMenuItem("Options...", func() { s.ShowOptionsWindow() }),
-		)
-		helpMenu := fyne.NewMenu("Help",
-			fyne.NewMenuItem("About Private Skype", func() {
-				dialog.ShowInformation("About", "Private Skype 7.40\nA private, self-hosted Skype 7 clone.\nBuilt with Go + Fyne.", s.MainWindow)
-			}),
-		)
-
-		mainMenu := fyne.NewMainMenu(skypeMenu, contactsMenu, toolsMenu, helpMenu)
-		s.MainWindow.SetMainMenu(mainMenu)
-
-		// System tray integration
-		if desk, ok := s.App.(desktop.App); ok {
-			trayMenu := fyne.NewMenu("Private Skype",
-				fyne.NewMenuItem("Open Skype", func() {
-					s.MainWindow.Show()
-				}),
-				fyne.NewMenuItemSeparator(),
-				fyne.NewMenuItem("Status: Online", func() {
-					s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: "Online"})
-				}),
-				fyne.NewMenuItem("Status: Away", func() {
-					s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: "Away"})
-				}),
-				fyne.NewMenuItem("Status: Offline / Invisible", func() {
-					s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: "Offline"})
-				}),
-				fyne.NewMenuItemSeparator(),
-				fyne.NewMenuItem("Quit", func() {
-					s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: "Offline"})
-					s.App.Quit()
-				}),
-			)
-			desk.SetSystemTrayMenu(trayMenu)
-			// Use the 100% authentic Skype 7 icon extracted from the binary
-			res, err := fyne.LoadResourceFromPath("assets/skype_icon.ico")
-			if err == nil {
-				desk.SetSystemTrayIcon(res)
-			} else {
-				desk.SetSystemTrayIcon(theme.HomeIcon())
-			}
-		}
-
-		s.MainWindow.SetCloseIntercept(func() {
-			s.MainWindow.Hide()
-		})
-	}
-
-	// Status dropdown
-	statusOptions := []string{"Online", "Away", "Do Not Disturb", "Invisible", "Offline"}
-	statusDropdown := widget.NewSelect(statusOptions, func(val string) {
-		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('status', ?)", val)
-		s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: val})
-	})
-
-	var lastStatus string
-	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'status'").Scan(&lastStatus)
-	if lastStatus != "" {
-		statusDropdown.SetSelected(lastStatus)
-	} else {
-		statusDropdown.SetSelected("Online")
-	}
-
-	header := container.NewHBox(
-		ui.NewAvatarWithStatus(32, lastStatus, s.AvatarPath),
-		widget.NewLabelWithStyle(s.Username, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		statusDropdown,
-	)
-
-	// Search
-	searchBar := widget.NewEntry()
-	searchBar.SetPlaceHolder("Search people...")
-
-	searchBar.OnChanged = func(val string) {
-		if s.Conn != nil && len(val) > 1 {
-			s.SendMessage(NexusMessage{Type: "search", Sender: s.Username, Body: val})
-		}
-	}
-
-	searchResultList := widget.NewList(
-		func() int { return len(s.Discovered) },
-		func() fyne.CanvasObject {
-			return container.NewHBox(
-				ui.NewAvatarWithStatus(24, "Offline", ""),
-				widget.NewLabel("Result"),
-				widget.NewButton("Add", func() {}),
-			)
-		},
-		func(i widget.ListItemID, o fyne.CanvasObject) {
-			box := o.(*fyne.Container)
-			box.Objects[1].(*widget.Label).SetText(s.Discovered[i])
-			box.Objects[2].(*widget.Button).OnTapped = func() {
-				name := s.Discovered[i]
-				s.SendMessage(NexusMessage{
-					Type:      "friend_request",
-					Sender:    s.Username,
-					Recipient: name,
-				})
-				dialog.ShowInformation("Skype™", "Friend request sent to "+name, s.MainWindow)
-			}
-		},
-	)
-	searchResultList.OnSelected = func(id widget.ListItemID) {
-		s.OpenChatWindow(s.Discovered[id])
-	}
-	s.SearchResult = searchResultList
-
-	// Contacts
-	s.loadFriends()
-
-	contactList := widget.NewList(
-		func() int { return len(s.Friends) },
-		func() fyne.CanvasObject {
-			removeBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {})
-			return container.NewBorder(nil, nil,
-				ui.NewAvatarWithStatus(32, "Offline", ""),
-				removeBtn,
-				container.NewVBox(
-					widget.NewLabel("Contact Name"),
-					widget.NewLabelWithStyle("Offline", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
-				),
-			)
-		},
-		func(i widget.ListItemID, o fyne.CanvasObject) {
-			box := o.(*fyne.Container)
-			// Border layout: objects order is [center, top, bottom, left, right]
-			// but we set left=avatar, right=removeBtn, center=infoBox
-			f := s.Friends[i]
-			for _, obj := range box.Objects {
-				switch v := obj.(type) {
-				case *fyne.Container:
-					if len(v.Objects) == 2 {
-						if lbl, ok := v.Objects[0].(*widget.Label); ok {
-							lbl.SetText(f.Username)
-						}
-						if lbl, ok := v.Objects[1].(*widget.Label); ok {
-							lbl.SetText(f.Status)
-						}
-					}
-				case *widget.Button:
-					name := f.Username
-					v.OnTapped = func() { s.removeContact(name) }
-				}
-			}
-		},
-	)
-	contactList.OnSelected = func(id widget.ListItemID) {
-		s.OpenChatWindow(s.Friends[id].Username)
-	}
-	s.ContactList = contactList
-
-	// Recent chats
-	recentChats := s.getRecentChats()
-	recentList := widget.NewList(
-		func() int { return len(recentChats) },
-		func() fyne.CanvasObject {
-			return container.NewHBox(
-				ui.NewAvatarWithStatus(32, "Offline", ""),
-				container.NewVBox(
-					widget.NewLabel("Name"),
-					widget.NewLabelWithStyle("Last message...", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
-				),
-			)
-		},
-		func(i widget.ListItemID, o fyne.CanvasObject) {
-			box := o.(*fyne.Container)
-			infoBox := box.Objects[1].(*fyne.Container)
-			infoBox.Objects[0].(*widget.Label).SetText(recentChats[i].Name)
-			infoBox.Objects[1].(*widget.Label).SetText(recentChats[i].LastMsg)
-		},
-	)
-	recentList.OnSelected = func(id widget.ListItemID) {
-		s.OpenChatWindow(recentChats[id].Name)
-	}
-
-	// Sidebar tabs
-	sidebarTabs := container.NewAppTabs(
-		container.NewTabItem("Recent", recentList),
-		container.NewTabItem("Contacts", contactList),
-		container.NewTabItem("Search", searchResultList),
-	)
-
-	bottomBar := container.NewHBox(
-		widget.NewButtonWithIcon("", theme.HomeIcon(), func() {}),
-	)
-
-	sidebarContent := container.NewBorder(
-		container.NewVBox(header, container.NewPadded(searchBar)),
-		bottomBar, nil, nil,
-		sidebarTabs,
-	)
-
-	sidebar := container.NewStack(
-		canvas.NewRectangle(ui.SkypeLightBlue),
-		sidebarContent,
-	)
-
-	// Home content
-	homeAvatar := ui.NewAvatarWithStatus(128, "Online", s.AvatarPath)
-	welcomeLabel := widget.NewLabelWithStyle("Welcome, "+s.Username, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-
-	statusEntry := widget.NewEntry()
+func (s *TazherApp) CreateHomeView() fyne.CanvasObject {
 	var lastMood string
 	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'mood'").Scan(&lastMood)
-	statusEntry.SetText(lastMood)
-	statusEntry.SetPlaceHolder("Tell your friends what you're up to...")
-	var moodDebounce *time.Timer
-	statusEntry.OnChanged = func(val string) {
+	return ui.NewTazherHome(s.Username, lastMood, s.Slicer, func(val string) {
 		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('mood', ?)", val)
-		if moodDebounce != nil {
-			moodDebounce.Stop()
-		}
-		moodDebounce = time.AfterFunc(600*time.Millisecond, func() {
-			s.SendMessage(NexusMessage{
-				Type:   "presence",
-				Sender: s.Username,
-				Status: "Online",
-				Body:   val,
-			})
+		s.SendMessage(NexusMessage{
+			Type:   "presence",
+			Sender: s.Username,
+			Status: "Online",
+			Body:   val,
 		})
-	}
-
-	changeAvatarBtn := widget.NewButton("Change Picture...", func() {
-		fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-			if err == nil && reader != nil {
-				s.AvatarPath = reader.URI().Path()
-				s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('avatar', ?)", s.AvatarPath)
-				log.Println("Avatar saved:", s.AvatarPath)
-			}
-		}, s.MainWindow)
-		fd.SetFilter(storage.NewExtensionFileFilter([]string{".png", ".jpg", ".jpeg"}))
-		fd.Show()
 	})
-
-	homeContent := container.NewCenter(
-		container.NewVBox(
-			container.NewCenter(homeAvatar),
-			container.NewCenter(changeAvatarBtn),
-			welcomeLabel,
-			container.NewPadded(statusEntry),
-			widget.NewButton("Find Friends", func() {
-				sidebarTabs.SelectIndex(2)
-				searchBar.FocusGained()
-			}),
-		),
-	)
-
-	mainContentArea := container.NewStack(
-		canvas.NewRectangle(color.White),
-		homeContent,
-	)
-
-	split := container.NewHSplit(sidebar, mainContentArea)
-	if s.CompactMode {
-		split.Offset = 0.2
-	} else {
-		split.Offset = 0.3
-	}
-
-	s.MainWindow.SetContent(split)
-	s.MainWindow.Show()
 }
 
-func (s *SkypeApp) showNewGroupDialog() {
+func (s *TazherApp) showNewGroupDialog() {
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("Group name")
 
@@ -1232,7 +967,7 @@ func (s *SkypeApp) showNewGroupDialog() {
 				}
 			}
 			if len(members) == 0 {
-				dialog.ShowInformation("Skype", "Select at least one contact", s.MainWindow)
+				dialog.ShowInformation("Tazher", "Select at least one contact", s.MainWindow)
 				return
 			}
 			convoID := fmt.Sprintf("convo_%d_%s", time.Now().UnixNano(), s.Username)
@@ -1248,22 +983,39 @@ func (s *SkypeApp) showNewGroupDialog() {
 	d.Show()
 }
 
-func (s *SkypeApp) showAddContactDialog() {
+func (s *TazherApp) showAddContactDialog() {
 	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("Enter Skype name...")
+	nameEntry.SetPlaceHolder("Enter Tazher name...")
 
 	dialog.ShowForm("Add Contact", "Send Request", "Cancel",
 		[]*widget.FormItem{
-			widget.NewFormItem("Skype Name", nameEntry),
+			widget.NewFormItem("Tazher Name", nameEntry),
 		},
 		func(ok bool) {
 			if ok && nameEntry.Text != "" {
+				recipient := nameEntry.Text
+				
+				// Attempt Nexus first
 				s.SendMessage(NexusMessage{
 					Type:      "friend_request",
 					Sender:    s.Username,
-					Recipient: nameEntry.Text,
+					Recipient: recipient,
 				})
-				dialog.ShowInformation("Skype™", "Friend request sent to "+nameEntry.Text, s.MainWindow)
+				
+				// Optional: Inform user that we are also searching P2P
+				if s.P2PNode != nil {
+					go func() {
+						log.Printf("[P2P] Searching for %s on DHT...", recipient)
+						pi, err := s.P2PNode.FindUser(recipient)
+						if err == nil {
+							log.Printf("[P2P] Found %s at %s", recipient, pi.Addrs)
+							// If we found them, we could immediately trigger a direct P2P handshake
+							// for discovery. For now, SendMessage with P2P fallback handles the delivery.
+						}
+					}()
+				}
+				
+				dialog.ShowInformation("Tazher™", "Friend request sent to "+recipient, s.MainWindow)
 			}
 		}, s.MainWindow)
 }
@@ -1275,18 +1027,131 @@ func boolStr(b bool) string {
 	return "0"
 }
 
-func humanSize(n int) string {
-	const k = 1024
-	if n < k {
-		return fmt.Sprintf("%d B", n)
+func (s *TazherApp) ShowProfileWindow() {
+	win := s.App.NewWindow("My Profile")
+	win.Resize(fyne.NewSize(350, 450))
+
+	// Get current profile
+	var displayName, mood string
+	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'display_name'").Scan(&displayName)
+	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'mood'").Scan(&mood)
+
+	nameEntry := widget.NewEntry()
+	nameEntry.SetText(displayName)
+	nameEntry.SetPlaceHolder("Display Name")
+
+	moodEntry := widget.NewMultiLineEntry()
+	moodEntry.SetText(mood)
+	moodEntry.SetPlaceHolder("What's on your mind?")
+
+	saveBtn := widget.NewButton("Save Profile", func() {
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('display_name', ?)", nameEntry.Text)
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('mood', ?)", moodEntry.Text)
+		
+		s.SendMessage(NexusMessage{
+			Type:        "update_profile",
+			Sender:      s.Username,
+			DisplayName: nameEntry.Text,
+			Mood:        moodEntry.Text,
+		})
+		
+		s.Sidebar.Refresh() // Refresh sidebar to show new mood
+		win.Close()
+	})
+	saveBtn.Importance = widget.HighImportance
+
+	win.SetContent(container.NewPadded(
+		container.NewVBox(
+			widget.NewLabelWithStyle("Personal Information", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+			widget.NewLabel("Full Name:"),
+			nameEntry,
+			widget.NewLabel("Mood Message:"),
+			moodEntry,
+			layout.NewSpacer(),
+			saveBtn,
+		),
+	))
+	win.Show()
+}
+
+func (s *TazherApp) getFriendAvatar(name string) string {
+	var avatar string
+	s.DB.QueryRow("SELECT avatar FROM Contacts WHERE tazhername = ?", name).Scan(&avatar)
+	return avatar
+}
+
+func (s *TazherApp) getFriendStatus(name string) string {
+	var status string
+	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'status'").Scan(&status)
+	if status == "" {
+		return "Offline"
 	}
-	if n < k*k {
-		return fmt.Sprintf("%.1f KB", float64(n)/k)
+	return status
+}
+
+func (s *TazherApp) ShowMainWindow() {
+	s.MainWindow = s.App.NewWindow("Tazher™ - " + s.Username)
+	s.MainWindow.Resize(fyne.NewSize(1000, 700))
+
+	s.loadFriends() // Ensure we have the list
+	recent := s.getRecentChats()
+	var recentNames []string
+	for _, r := range recent {
+		recentNames = append(recentNames, r.Name)
 	}
-	if n < k*k*k {
-		return fmt.Sprintf("%.1f MB", float64(n)/(k*k))
+	// Add friends who haven't messaged yet to ensure list isn't empty
+	for _, f := range s.Friends {
+		found := false
+		for _, r := range recentNames {
+			if r == f.Username {
+				found = true
+				break
+			}
+		}
+		if !found {
+			recentNames = append(recentNames, f.Username)
+		}
 	}
-	return fmt.Sprintf("%.1f GB", float64(n)/(k*k*k))
+
+	sidebarProps := ui.SidebarProps{
+		Username:    s.Username,
+		Status:      "Online", 
+		AvatarPath:  s.AvatarPath,
+		Slicer:      s.Slicer,
+		OnChatOpen:  s.OpenChatWindow,
+		OnAddFriend: s.showAddContactDialog,
+		OnNewGroup:  s.showNewGroupDialog,
+		RecentChats: s.Friends,
+		OnProfile:   s.ShowProfileWindow, // Added callback
+	}
+
+	s.Sidebar = ui.NewTazherSidebar(sidebarProps)
+	s.HomeView = s.CreateHomeView()
+	s.ContentStack = container.NewStack(s.HomeView)
+
+	// --- Toolbar (Top Bar) ---
+	toolbar := container.NewHBox(
+		widget.NewButtonWithIcon("", theme.HomeIcon(), func() {
+			s.ContentStack.Objects = []fyne.CanvasObject{s.HomeView}
+			s.ContentStack.Refresh()
+		}),
+		layout.NewSpacer(),
+		widget.NewLabel("Tazher Credit: $0.00"),
+		widget.NewButton("Dial pad", func() {}),
+	)
+
+	// --- Setup Main Menu ---
+	s.setupMenu(s.MainWindow)
+
+	// Layout: [Sidebar] | [Toolbar / Content]
+	split := container.NewHSplit(
+		s.Sidebar,
+		container.NewBorder(toolbar, nil, nil, nil, s.ContentStack),
+	)
+	split.Offset = 0.3
+
+	s.MainWindow.SetContent(split)
+	s.MainWindow.Show()
 }
 
 type RecentChat struct {
@@ -1294,7 +1159,7 @@ type RecentChat struct {
 	LastMsg string
 }
 
-func (s *SkypeApp) getRecentChats() []RecentChat {
+func (s *TazherApp) getRecentChats() []RecentChat {
 	rows, err := s.DB.Query(`
 		SELECT chatname, body_xml FROM Messages
 		WHERE id IN (SELECT MAX(id) FROM Messages GROUP BY chatname)
@@ -1316,10 +1181,56 @@ func (s *SkypeApp) getRecentChats() []RecentChat {
 	return chats
 }
 
+func (s *TazherApp) setupMenu(win fyne.Window) {
+	tazherMenu := fyne.NewMenu("Tazher",
+		fyne.NewMenuItem("Online Status", nil),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Privacy...", func() {}),
+		fyne.NewMenuItem("Sign Out", func() { s.ShowLoginWindow() }),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Close", func() { win.Close() }),
+	)
+
+	contactsMenu := fyne.NewMenu("Contacts",
+		fyne.NewMenuItem("Add Contact...", func() {}),
+		fyne.NewMenuItem("Create New Group...", func() {}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Show Outlook Contacts", func() {}),
+	)
+
+	viewMenu := fyne.NewMenu("View",
+		fyne.NewMenuItem("Contacts", func() {}),
+		fyne.NewMenuItem("Recent", func() {}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Compact View", func() {}),
+	)
+
+	helpMenu := fyne.NewMenu("Help",
+		fyne.NewMenuItem("Check for Updates", func() {}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("About Tazher™", func() {}),
+	)
+
+	debugMenu := fyne.NewMenu("Debug",
+		fyne.NewMenuItem("Open Window...", func() {}),
+		fyne.NewMenuItem("Contact List", func() {}),
+		fyne.NewMenuItem("Getting Started Wizard", func() {}),
+		fyne.NewMenuItem("Call Feedback", func() {}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Premium Video", func() {}),
+		fyne.NewMenuItem("Premium Screen Sharing", func() {}),
+	)
+
+	mainMenu := fyne.NewMainMenu(tazherMenu, contactsMenu, viewMenu, helpMenu, debugMenu)
+	win.SetMainMenu(mainMenu)
+}
+
+
+
 // ---------- Options Window ----------
 
-func (s *SkypeApp) ShowOptionsWindow() {
-	win := s.App.NewWindow("Skype™ - Options")
+func (s *TazherApp) ShowOptionsWindow() {
+	win := s.App.NewWindow("Tazher™ - Options")
 	win.Resize(fyne.NewSize(700, 500))
 
 	categories := []string{"General", "Privacy", "Notifications", "Audio & Video", "Advanced"}
@@ -1452,23 +1363,23 @@ func (s *SkypeApp) ShowOptionsWindow() {
 
 // ---------- Login & Registration ----------
 
-func (s *SkypeApp) ShowLoginWindow() {
-	win := s.App.NewWindow("Skype™ - Sign In")
-	win.Resize(fyne.NewSize(400, 550))
+func (s *TazherApp) ShowLoginWindow() {
+	win := s.App.NewWindow("Tazher™ - Sign In")
+	win.Resize(fyne.NewSize(400, 600))
 	win.SetFixedSize(true)
 
-	logo := canvas.NewImageFromResource(theme.HomeIcon())
+	logo := canvas.NewImageFromFile("assets/tazher_logo.png")
 	logo.FillMode = canvas.ImageFillContain
-	logo.SetMinSize(fyne.NewSize(100, 100))
+	logo.SetMinSize(fyne.NewSize(200, 100))
 
 	usernameEntry := widget.NewEntry()
-	usernameEntry.SetPlaceHolder("Skype Name")
+	usernameEntry.SetPlaceHolder("Tazher Name")
 
 	passwordEntry := widget.NewPasswordEntry()
 	passwordEntry.SetPlaceHolder("Password")
 
 	serverEntry := widget.NewEntry()
-	serverEntry.SetText("wss://skype7-reborn.fly.dev/cable")
+	serverEntry.SetText("wss://tazher7-reborn.fly.dev/cable")
 
 	// Load saved credentials
 	var savedUser, savedServer string
@@ -1481,6 +1392,25 @@ func (s *SkypeApp) ShowLoginWindow() {
 		serverEntry.SetText(savedServer)
 	}
 
+	// Auto-login if we have everything
+	if savedUser != "" && savedServer != "" {
+		pass, err := keyring.Get(keyringService, savedUser)
+		if err == nil && pass != "" {
+			passwordEntry.SetText(pass)
+			// Trigger login in a moment
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				s.Username = savedUser
+				s.ServerAddress = savedServer
+				if s.ConnectToServer(pass) == nil {
+					s.ShowMainWindow()
+					s.CheckForUpdates()
+					win.Close()
+				}
+			}()
+		}
+	}
+
 	statusLabel := widget.NewLabel("")
 	statusLabel.Hide()
 
@@ -1490,27 +1420,27 @@ func (s *SkypeApp) ShowLoginWindow() {
 			statusLabel.Show()
 			return
 		}
-		s.Username = usernameEntry.Text
-		s.ServerAddress = serverEntry.Text
-		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('username', ?)", s.Username)
-		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('server', ?)", s.ServerAddress)
-		if err := keyring.Set(keyringService, s.Username, passwordEntry.Text); err != nil {
-			log.Printf("keyring: %v — falling back to in-memory only", err)
-		}
-		// Scrub any legacy plaintext password stored in DB
-		s.DB.Exec("DELETE FROM Profile WHERE key = 'password'")
 
-		statusLabel.SetText("Connecting...")
+		s.Username = usernameEntry.Text
+		pass := passwordEntry.Text
+
+		statusLabel.SetText("Connecting to Tazher...")
 		statusLabel.Show()
 
-		err := s.ConnectToServer()
+		err := s.ConnectToServer(pass)
 		if err != nil {
-			statusLabel.SetText("Connection failed: " + err.Error())
+			statusLabel.SetText("Error: " + err.Error())
 			return
 		}
 
+		// Persist successful credentials
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('username', ?)", s.Username)
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('server', ?)", s.ServerAddress)
+		keyring.Set(keyringService, s.Username, pass)
+
 		s.PlaySound("Login.wav")
 		s.ShowMainWindow()
+		s.CheckForUpdates()
 		win.Close()
 	})
 	loginBtn.Importance = widget.HighImportance
@@ -1519,39 +1449,58 @@ func (s *SkypeApp) ShowLoginWindow() {
 		s.showRegistrationWindow(serverEntry.Text)
 	})
 
-	serverToggle := widget.NewCheck("Show server settings", func(show bool) {
-		if show {
-			serverEntry.Show()
-		} else {
-			serverEntry.Hide()
+	p2pBtn := widget.NewButton("Sign In P2P Only", func() {
+		if usernameEntry.Text == "" {
+			statusLabel.SetText("Please enter a Tazher name")
+			statusLabel.Show()
+			return
 		}
+		s.Username = usernameEntry.Text
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('username', ?)", s.Username)
+		
+		// Start P2P identity
+		if s.P2PNode != nil {
+			go s.P2PNode.Announce(s.Username)
+		}
+		
+		s.PlaySound("Login.wav")
+		s.ShowMainWindow()
+		win.Close()
 	})
-	serverEntry.Hide()
+	p2pBtn.Importance = widget.MediumImportance
 
 	win.SetContent(container.NewCenter(
 		container.NewVBox(
 			container.NewCenter(logo),
-			widget.NewLabelWithStyle("Private Skype", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Tazher: Private & Safe", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Don't stop til you've had enough", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
 			widget.NewLabel("Sign in to your account"),
 			container.NewPadded(usernameEntry),
 			container.NewPadded(passwordEntry),
-			container.NewPadded(serverToggle),
-			container.NewPadded(serverEntry),
 			statusLabel,
 			container.NewPadded(loginBtn),
+			container.NewPadded(p2pBtn),
 			container.NewCenter(createBtn),
+			layout.NewSpacer(),
+			widget.NewLabelWithStyle("Version "+Version, fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
 		),
 	))
 	win.Show()
 }
 
-func (s *SkypeApp) showRegistrationWindow(serverAddr string) {
+func (s *TazherApp) showRegistrationWindow(serverAddr string) {
 	win := s.App.NewWindow("Create Account")
 	win.Resize(fyne.NewSize(400, 400))
 	win.SetFixedSize(true)
 
 	usernameEntry := widget.NewEntry()
-	usernameEntry.SetPlaceHolder("Choose a Skype name")
+	usernameEntry.SetPlaceHolder("Choose a Tazher name")
+
+	emailEntry := widget.NewEntry()
+	emailEntry.SetPlaceHolder("Email address")
+
+	moodEntry := widget.NewEntry()
+	moodEntry.SetPlaceHolder("Your mood (optional)")
 
 	passwordEntry := widget.NewPasswordEntry()
 	passwordEntry.SetPlaceHolder("Choose a password")
@@ -1563,30 +1512,26 @@ func (s *SkypeApp) showRegistrationWindow(serverAddr string) {
 	statusLabel.Hide()
 
 	registerBtn := widget.NewButton("Create Account", func() {
-		if usernameEntry.Text == "" {
-			statusLabel.SetText("Please enter a username")
+		if usernameEntry.Text == "" || emailEntry.Text == "" {
+			statusLabel.SetText("Username and Email are required")
 			statusLabel.Show()
 			return
 		}
-		if len(passwordEntry.Text) < 4 {
-			statusLabel.SetText("Password must be at least 4 characters")
+		if !strings.Contains(emailEntry.Text, "@") {
+			statusLabel.SetText("Invalid email address")
 			statusLabel.Show()
 			return
 		}
-		if passwordEntry.Text != confirmEntry.Text {
-			statusLabel.SetText("Passwords do not match")
-			statusLabel.Show()
-			return
+		
+		// Use the currently configured server address
+		addr := s.ServerAddress
+		if addr == "" {
+			addr = "ws://localhost:8080/cable" // Default to local if unset
 		}
 
-		// Connect temporarily to register
-		addr := serverAddr
-		if addr == "" {
-			addr = "wss://skype7-reborn.fly.dev/cable"
-		}
 		c, _, err := websocket.DefaultDialer.Dial(addr, nil)
 		if err != nil {
-			statusLabel.SetText("Cannot connect to server")
+			statusLabel.SetText("Cannot connect to " + addr)
 			statusLabel.Show()
 			return
 		}
@@ -1595,6 +1540,8 @@ func (s *SkypeApp) showRegistrationWindow(serverAddr string) {
 			Type:   "register",
 			Sender: usernameEntry.Text,
 			Body:   passwordEntry.Text,
+			Email:  emailEntry.Text,
+			Mood:   moodEntry.Text,
 		})
 
 		var result NexusMessage
@@ -1627,26 +1574,57 @@ func (s *SkypeApp) showRegistrationWindow(serverAddr string) {
 // ---------- Main ----------
 
 func main() {
-	skype := NewSkypeApp()
-	skype.App.Settings().SetTheme(&ui.Skype7Theme{})
+	tazher := NewTazherApp()
+	tazher.App.Settings().SetTheme(&ui.Tazher7Theme{})
 
 	// Load saved avatar + settings
 	var savedAvatar string
-	skype.DB.QueryRow("SELECT value FROM Profile WHERE key = 'avatar'").Scan(&savedAvatar)
+	tazher.DB.QueryRow("SELECT value FROM Profile WHERE key = 'avatar'").Scan(&savedAvatar)
 	if savedAvatar != "" {
-		skype.AvatarPath = savedAvatar
+		tazher.AvatarPath = savedAvatar
 	}
 	var soundVal string
-	skype.DB.QueryRow("SELECT value FROM Profile WHERE key = 'notify_sounds'").Scan(&soundVal)
+	tazher.DB.QueryRow("SELECT value FROM Profile WHERE key = 'notify_sounds'").Scan(&soundVal)
 	if soundVal == "0" {
-		skype.SoundEnabled = false
+		tazher.SoundEnabled = false
 	}
 	var compactVal string
-	skype.DB.QueryRow("SELECT value FROM Profile WHERE key = 'compact_mode'").Scan(&compactVal)
+	tazher.DB.QueryRow("SELECT value FROM Profile WHERE key = 'compact_mode'").Scan(&compactVal)
 	if compactVal == "1" {
-		skype.CompactMode = true
+		tazher.CompactMode = true
 	}
 
-	skype.ShowLoginWindow()
-	skype.App.Run()
+	tazher.ShowLoginWindow()
+	tazher.App.Run()
+}
+
+func (s *TazherApp) CheckForUpdates() {
+	// 1. Check Nexus for latest version
+	go func() {
+		// ALWAYS attempt to check the Production Master for updates.
+		productionURL := "https://tazher7-reborn.fly.dev/version"
+		
+		resp, err := http.Get(productionURL)
+		if err != nil {
+			// Fallback to currently connected server address if production is out
+			u := strings.Replace(s.ServerAddress, "ws", "http", 1)
+			u = strings.TrimSuffix(u, "/cable") + "/version"
+			resp, err = http.Get(u)
+		}
+
+		if err == nil {
+			var latest struct {
+				Version string `json:"version"`
+				URL     string `json:"url"`
+			}
+			json.NewDecoder(resp.Body).Decode(&latest)
+			if latest.Version != "" && latest.Version != Version {
+				log.Printf("[Update] New version available: %s", latest.Version)
+				if s.MainWindow != nil {
+					s.App.SendNotification(fyne.NewNotification("Tazher Update", "A new version ("+latest.Version+") is available!"))
+				}
+			}
+			resp.Body.Close()
+		}
+	}()
 }

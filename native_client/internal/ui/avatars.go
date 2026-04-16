@@ -9,7 +9,7 @@ import (
 )
 
 // NewAvatarWithStatus renders a circular avatar with a presence dot in the
-// bottom-right corner — the authentic Skype 7 look.
+// bottom-right corner — the authentic Tazher 7 look.
 func NewAvatarWithStatus(size float32, status string, imagePath string) fyne.CanvasObject {
 	var base fyne.CanvasObject
 
@@ -43,12 +43,10 @@ func NewAvatarWithStatus(size float32, status string, imagePath string) fyne.Can
 
 	// Badge is ~1/3 the avatar size, anchored to bottom-right via absolute positioning.
 	badgeSize := size / 3
-	wrap := container.NewWithoutLayout(base, badge)
-	base.Resize(fyne.NewSize(size, size))
-	base.Move(fyne.NewPos(0, 0))
+	wrap := container.NewStack(base, container.NewWithoutLayout(badge))
 	badge.Resize(fyne.NewSize(badgeSize, badgeSize))
-	badge.Move(fyne.NewPos(size-badgeSize, size-badgeSize))
-	wrap.Resize(fyne.NewSize(size, size))
-
-	return wrap
+	badge.Move(fyne.NewPos(size-badgeSize-2, size-badgeSize-2))
+	
+	// Ensure the container itself has a minimum size
+	return container.NewGridWrap(fyne.NewSize(size, size), wrap)
 }

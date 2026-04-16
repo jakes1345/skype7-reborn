@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// Map of Skype 7 emoticon tokens → asset filename (relative to assets/).
+// Map of Tazher 7 emoticon tokens → asset filename (relative to assets/).
 // Covers the classic full set. Missing assets fall back to the literal text.
 var emoticonMap = map[string]string{
 	"(smile)":      "emoticon_smile.png",
@@ -82,6 +82,18 @@ var emoticonMap = map[string]string{
 	"(bow)":        "emoticon_bow.png",
 	"(wave)":       "emoticon_wave.png",
 	"(hug)":        "emoticon_hug.png",
+	// --- Hidden / Party Emoticons ---
+	"(finger)":     "emoticon_finger.png",
+	"(toivo)":      "emoticon_toivo.png",
+	"(rock)":       "emoticon_rock.png",
+	"(poolparty)":  "emoticon_poolparty.png",
+	"(mooning)":    "emoticon_mooning.png",
+	"(bug)":        "emoticon_bug.png",
+	"(drunk)":      "emoticon_drunk.png",
+	"(bandit)":     "emoticon_bandit.png",
+	"(tazher)":      "tazher_logo_small.png",
+	"(tmi)":        "emoticon_tmi.png",
+	"(fubar)":      "emoticon_fubar.png",
 }
 
 // Precomputed regex that matches any token, longest-first so "(smile)" wins over "(s".

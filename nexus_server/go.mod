@@ -1,4 +1,4 @@
-module skype-nexus
+module tazher-nexus
 
 go 1.25.0
 
