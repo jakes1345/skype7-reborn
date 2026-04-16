@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build_linux_windows:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [linux, windows] # Temporarily disable darwin until CGO sorted
+        target: [linux, windows]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,14 +33,39 @@ jobs:
         run: |
           go mod download
           if [ "${{ matrix.target }}" == "windows" ]; then
-            GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -o ../tazher-windows.exe .
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -ldflags="-H windowsgui" -o ../tazher-windows.exe .
           else
             GOOS=linux GOARCH=amd64 go build -o ../tazher-linux .
           fi
-        # Note: Windows CGO build requires mingw-w64 but let's try standard build first if audio allows
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tazher-${{ matrix.target }}
           path: tazher-*
+
+  build_macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Build Binary
+        working-directory: native_client
+        run: |
+          go mod download
+          GOOS=darwin GOARCH=amd64 go build -o ../tazher-macos .
+          GOOS=darwin GOARCH=arm64 go build -o ../tazher-macos-arm64 .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tazher-macos
+          path: tazher-macos*
+
