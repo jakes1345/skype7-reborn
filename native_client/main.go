@@ -566,14 +566,14 @@ func (s *TazherApp) updateFriendStatus(username, status string) {
 
 func (s *TazherApp) loadFriends() {
 	s.Friends = nil
-	rows, err := s.DB.Query("SELECT tazhername, COALESCE(status, 'Offline'), COALESCE(avatar_path, '') FROM Contacts ORDER BY status DESC, tazhername ASC")
+	rows, err := s.DB.Query("SELECT tazhername, COALESCE(status, 'offline'), COALESCE(avatar_path, '') FROM Contacts ORDER BY status DESC, tazhername ASC")
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var f FriendInfo
+		var f ui.FriendInfo
 		rows.Scan(&f.Username, &f.Status, &f.Avatar)
 		s.Friends = append(s.Friends, f)
 	}

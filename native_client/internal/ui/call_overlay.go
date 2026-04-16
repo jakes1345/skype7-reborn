@@ -99,7 +99,7 @@ func (c *CallOverlay) Render() fyne.CanvasObject {
 
 	content := container.NewVBox(
 		layout.NewSpacer(),
-		container.NewCenter(peerAvatar),
+		container.NewCenter(avatarContainer),
 		nameLabel,
 		c.status,
 		c.timer,

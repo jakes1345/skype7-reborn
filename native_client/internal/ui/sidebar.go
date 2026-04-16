@@ -40,11 +40,6 @@ func NewTazherSidebar(props SidebarProps) fyne.CanvasObject {
 		moodLabel.SetText("Set mood...")
 	}
 
-	profile := container.NewHBox(
-		container.NewPadded(widget.NewButton("", props.OnProfile)), // Overlay on avatar area
-		container.NewVBox(layout.NewSpacer(), nameLabel, moodLabel, layout.NewSpacer()),
-	)
-	
 	// Real click handler on avatar area
 	avatarBtn := widget.NewButton("", props.OnProfile)
 	avatarBtn.Importance = widget.LowImportance
