@@ -13,6 +13,9 @@ type SettingsProps struct {
 	SoundEnabled   bool
 	OnSave         func(server string, sound bool)
 	OnAudioChange  func(deviceName string)
+	Sentinel       interface {
+		GetDiagnosticSummaries() string
+	}
 }
 
 func NewSettingsDialog(props SettingsProps) fyne.CanvasObject {
@@ -57,10 +60,29 @@ func NewSettingsDialog(props SettingsProps) fyne.CanvasObject {
 		widget.NewCheck("Allow Local mDNS Discovery", func(bool) {}),
 	)
 
+	// 4. Sentinel Tab (Acting on peer audit)
+	sentinelReport := widget.NewRichTextFromMarkdown("")
+	sentinelReport.Hide()
+
+	scanBtn := widget.NewButtonWithIcon("Run Forensic Network Scan", theme.SearchIcon(), func() {
+		sentinelReport.ParseMarkdown(props.Sentinel.GetDiagnosticSummaries())
+		sentinelReport.Show()
+	})
+	scanBtn.Importance = widget.WarningImportance
+
+	sentinelTab := container.NewVScroll(container.NewVBox(
+		widget.NewLabelWithStyle("TAZHER Sentinel Diagnostic", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Autonomous system health and network path auditing."),
+		widget.NewSeparator(),
+		scanBtn,
+		sentinelReport,
+	))
+
 	tabs := container.NewAppTabs(
 		container.NewTabItemWithIcon("General", theme.SettingsIcon(), generalTab),
 		container.NewTabItemWithIcon("Audio & Video", theme.MediaVideoIcon(), avTab),
 		container.NewTabItemWithIcon("Privacy", theme.VisibilityIcon(), privacyTab),
+		container.NewTabItemWithIcon("Sentinel", theme.InfoIcon(), sentinelTab),
 	)
 	
 	saveBtn := widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), func() {

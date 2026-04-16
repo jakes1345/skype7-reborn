@@ -174,11 +174,9 @@ func (cm *CallManager) WriteAudio(peerName string, frame []byte, durationMs int)
 }
 
 // CreateOffer prepares a new PeerConnection and generates an SDP offer
-func (cm *CallManager) CreateOffer(peerName string, onICECandidate func(*webrtc.ICECandidate)) (*webrtc.PeerConnection, string, error) {
+func (cm *CallManager) CreateOffer(peerName string, config webrtc.Configuration, onICECandidate func(*webrtc.ICECandidate)) (*webrtc.PeerConnection, string, error) {
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
-
-	config := webrtc.Configuration{ICEServers: iceServers()}
 
 	pc, err := cm.API.NewPeerConnection(config)
 	if err != nil {
@@ -224,11 +222,9 @@ func (cm *CallManager) CreateOffer(peerName string, onICECandidate func(*webrtc.
 }
 
 // HandleOffer receives an SDP offer, prepares a PeerConnection, and generates an SDP answer
-func (cm *CallManager) HandleOffer(peerName string, offerSDP string, onICECandidate func(*webrtc.ICECandidate)) (*webrtc.PeerConnection, string, error) {
+func (cm *CallManager) HandleOffer(peerName string, config webrtc.Configuration, offerSDP string, onICECandidate func(*webrtc.ICECandidate)) (*webrtc.PeerConnection, string, error) {
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
-
-	config := webrtc.Configuration{ICEServers: iceServers()}
 
 	pc, err := cm.API.NewPeerConnection(config)
 	if err != nil {

@@ -719,7 +719,17 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 
 	case "call_offer":
 		s.playSound("CallIncoming.wav")
-		s.showIncomingCallDialog(msg.Sender, msg.SDP)
+		
+		// Forensic ICE Server Matrix (Acting on developer audit)
+		iceConfig := webrtc.Configuration{
+			ICEServers: []webrtc.ICEServer{
+				{URLs: []string{"stun:stun.l.google.com:19302"}},
+				{URLs: []string{"stun:stun1.l.google.com:19302"}},
+				{URLs: []string{"stun:stun2.l.google.com:19302"}},
+			},
+		}
+		
+		s.showIncomingCallDialog(msg.Sender, iceConfig, msg.SDP)
 
 	case "call_answer":
 		log.Printf("Call answered by %s", msg.Sender)
@@ -951,8 +961,16 @@ func (s *TazherApp) StartCall(name string) {
 	if _, exists := s.CallWindows[name]; exists {
 		return
 	}
-	s.playSound("CallOutgoing.wav")
-	_, offerSDP, err := s.Calls.CreateOffer(name, func(c *webrtc.ICECandidate) {
+	// Forensic ICE Server Matrix (Acting on developer audit)
+	iceConfig := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+			{URLs: []string{"stun:stun1.l.google.com:19302"}},
+			{URLs: []string{"stun:stun2.l.google.com:19302"}},
+		},
+	}
+
+	_, offerSDP, err := s.Calls.CreateOffer(name, iceConfig, func(c *webrtc.ICECandidate) {
 		candidateBytes, _ := json.Marshal(c.ToJSON())
 		s.SendMessage(NexusMessage{
 			Type:      "ice_candidate",
@@ -1068,12 +1086,12 @@ func (s *TazherApp) openCallWindow(name, initialStatus string) {
 	}()
 }
 
-func (s *TazherApp) showIncomingCallDialog(from, sdp string) {
+func (s *TazherApp) showIncomingCallDialog(from string, config webrtc.Configuration, sdp string) {
 	if s.MainWindow == nil {
 		return
 	}
 	
-	s.PlaySound("CallIncoming.wav")
+	s.playSound("CallIncoming.wav")
 	
 	win := s.App.NewWindow("Incoming Call")
 	win.Resize(fyne.NewSize(350, 500))
@@ -1081,7 +1099,7 @@ func (s *TazherApp) showIncomingCallDialog(from, sdp string) {
 
 	overlay := ui.NewCallOverlay(from, s.getFriendAvatar(from), true)
 	overlay.OnAnswer = func() {
-		_, answerSDP, err := s.Calls.HandleOffer(from, sdp, func(c *webrtc.ICECandidate) {
+		_, answerSDP, err := s.Calls.HandleOffer(from, config, sdp, func(c *webrtc.ICECandidate) {
 			candidateBytes, _ := json.Marshal(c.ToJSON())
 			s.SendMessage(NexusMessage{
 				Type:      "ice_candidate",
@@ -2060,6 +2078,7 @@ func (s *TazherApp) showSettingsWindow() {
 	settings := ui.NewSettingsDialog(ui.SettingsProps{
 		ServerAddr:   s.ServerAddress,
 		SoundEnabled: s.SoundEnabled,
+		Sentinel:     s.Sentinel,
 		OnSave: func(newServer string, sound bool) {
 			s.ServerAddress = newServer
 			s.SoundEnabled = sound
