@@ -143,12 +143,28 @@ func parseRichText(text string) []fyne.CanvasObject {
 }
 
 func NewMessageBubble(author, text string, isMe bool) fyne.CanvasObject {
-	bubbleColor := color.NRGBA{R: 240, G: 240, B: 240, A: 255}
+	var bg fyne.CanvasObject
 	if isMe {
-		bubbleColor = color.NRGBA{R: 225, G: 245, B: 255, A: 255}
+		// Tazher Premium Blue Gradient
+		top := color.NRGBA{R: 225, G: 245, B: 255, A: 255}
+		bottom := color.NRGBA{R: 210, G: 235, B: 250, A: 255}
+		grad := canvas.NewLinearGradient(top, bottom, 90) // Vertical
+		
+		rect := canvas.NewRectangle(color.Transparent)
+		rect.StrokeColor = color.NRGBA{R: 0, G: 175, B: 240, A: 40}
+		rect.StrokeWidth = 1
+		bg = container.NewStack(grad, rect)
+	} else {
+		// Classic Neutral Gray Gradient
+		top := color.NRGBA{R: 248, G: 248, B: 248, A: 255}
+		bottom := color.NRGBA{R: 235, G: 235, B: 235, A: 255}
+		grad := canvas.NewLinearGradient(top, bottom, 90)
+		
+		rect := canvas.NewRectangle(color.Transparent)
+		rect.StrokeColor = color.NRGBA{R: 0, G: 0, B: 0, A: 20}
+		rect.StrokeWidth = 1
+		bg = container.NewStack(grad, rect)
 	}
-
-	bg := canvas.NewRectangle(bubbleColor)
 
 	nameLabel := widget.NewLabelWithStyle(author, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	bodyContent := container.NewHBox(parseRichText(text)...)

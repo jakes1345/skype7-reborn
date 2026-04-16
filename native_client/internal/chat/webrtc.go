@@ -18,9 +18,9 @@ import (
 // Defaults: Google STUN + Open Relay Project free TURN (works behind
 // symmetric NATs). Override any of the three via env vars for self-hosting:
 //
-//	SKYPE_TURN_URL   comma-separated list (e.g. "turn:turn.example.com:3478")
-//	SKYPE_TURN_USER  username
-//	SKYPE_TURN_PASS  credential
+//	SHADOW_TURN_URL   comma-separated list (e.g. "turn:turn.example.com:3478")
+//	SHADOW_TURN_USER  username
+//	SHADOW_TURN_PASS  credential
 //
 // If SKYPE_TURN_URL is set the default TURN servers are replaced, not merged.
 func iceServers() []webrtc.ICEServer {
@@ -28,15 +28,15 @@ func iceServers() []webrtc.ICEServer {
 		{URLs: []string{"stun:stun.l.google.com:19302"}},
 	}
 
-	if custom := os.Getenv("SKYPE_TURN_URL"); custom != "" {
+	if custom := os.Getenv("SHADOW_TURN_URL"); custom != "" {
 		urls := strings.Split(custom, ",")
 		for i, u := range urls {
 			urls[i] = strings.TrimSpace(u)
 		}
 		servers = append(servers, webrtc.ICEServer{
 			URLs:           urls,
-			Username:       os.Getenv("SKYPE_TURN_USER"),
-			Credential:     os.Getenv("SKYPE_TURN_PASS"),
+			Username:       os.Getenv("SHADOW_TURN_USER"),
+			Credential:     os.Getenv("SHADOW_TURN_PASS"),
 			CredentialType: webrtc.ICECredentialTypePassword,
 		})
 		return servers
@@ -131,7 +131,7 @@ func NewCallManager() *CallManager {
 func (cm *CallManager) addAudioTrack(peerName string, pc *webrtc.PeerConnection) {
 	track, err := webrtc.NewTrackLocalStaticSample(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMU, ClockRate: 8000, Channels: 1},
-		"audio", "skype-"+peerName,
+		"audio", "tazher-"+peerName,
 	)
 	if err != nil {
 		log.Printf("[WebRTC] create audio track: %v", err)
@@ -186,7 +186,7 @@ func (cm *CallManager) CreateOffer(peerName string, onICECandidate func(*webrtc.
 	}
 
 	// Create a dedicated signaling and file data channel
-	dc, err := pc.CreateDataChannel("skype-data", nil)
+	dc, err := pc.CreateDataChannel("tazher-data", nil)
 	if err != nil {
 		return nil, "", err
 	}

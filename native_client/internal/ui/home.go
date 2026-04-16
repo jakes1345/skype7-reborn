@@ -11,8 +11,15 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+type ActivityItem struct {
+	Name    string
+	Avatar  string
+	Action  string
+	Content string
+}
+
 // TazherHome creates the classic 2-column "Tazher Home" view.
-func NewTazherHome(username, mood string, slicer *AeroSlicer, onMoodChange func(string)) fyne.CanvasObject {
+func NewTazherHome(username, mood string, updates []ActivityItem, slicer *AeroSlicer, onMoodChange func(string)) fyne.CanvasObject {
 	// --- Sidebar / Left Column (The Hood) ---
 	avatar := canvas.NewImageFromFile("assets/default_avatar.png")
 	avatar.SetMinSize(fyne.NewSize(80, 80))
@@ -82,10 +89,15 @@ func NewTazherHome(username, mood string, slicer *AeroSlicer, onMoodChange func(
 	)
 
 	// Feed items
-	socialFeed := container.NewVBox(
-		widget.NewLabel("No new updates yet."),
-		widget.NewButton("Find Friends", func() {}),
-	)
+	socialFeed := container.NewVBox()
+	if len(updates) == 0 {
+		socialFeed.Add(widget.NewLabel("No new updates yet."))
+		socialFeed.Add(widget.NewButton("Find Friends", func() {}))
+	} else {
+		for _, up := range updates {
+			socialFeed.Add(createActivityCard(up))
+		}
+	}
 
 	feedScroll := container.NewVScroll(container.NewPadded(container.NewVBox(feedHeader, tiles, widget.NewSeparator(), socialFeed)))
 
@@ -140,4 +152,18 @@ func createHomeTile(title, desc string, icon fyne.Resource) fyne.CanvasObject {
 
 	return container.NewStack(cardBg, container.NewPadded(container.NewPadded(content)))
 }
-
+func createActivityCard(item ActivityItem) fyne.CanvasObject {
+	avatar := NewAvatarWithStatus(32, "Online", item.Avatar)
+	nameLabel := widget.NewLabelWithStyle(item.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	actionLabel := widget.NewLabel(item.Action + ":")
+	contentLabel := widget.NewLabelWithStyle(item.Content, fyne.TextAlignLeading, fyne.TextStyle{Italic: true})
+	
+	cardBg := canvas.NewRectangle(color.White)
+	cardBg.StrokeColor = color.NRGBA{R: 0, G: 0, B: 0, A: 20}
+	cardBg.StrokeWidth = 1
+	
+	header := container.NewHBox(avatar, nameLabel, actionLabel)
+	body := container.NewPadded(contentLabel)
+	
+	return container.NewStack(cardBg, container.NewPadded(container.NewVBox(header, body)))
+}

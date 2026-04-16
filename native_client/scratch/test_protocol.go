@@ -19,7 +19,7 @@ type NexusMessage struct {
 }
 
 func main() {
-	u := url.URL{Scheme: "wss", Host: "skype7-reborn.fly.dev", Path: "/cable"}
+	u := url.URL{Scheme: "wss", Host: "shadow7-reborn.fly.dev", Path: "/cable"}
 	log.Printf("connecting to %s", u.String())
 
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"image/color"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
@@ -111,15 +112,21 @@ type TazherApp struct {
 
 	// Notifications
 	UnreadCounts map[string]int
-
-	Calls *chat.CallManager
-
-	Slicer *ui.AeroSlicer
+	Calls        *chat.CallManager
+	Slicer       *ui.AeroSlicer
 
 	P2PNode      *p2p.TazherNode
 	Sidebar      fyne.CanvasObject
 	HomeView     fyne.CanvasObject
 	ContentStack *fyne.Container
+
+	// Extended State
+	OpenWindows  map[string]fyne.Window
+	SplitMode    bool
+	LastActivity time.Time
+	isAway       bool
+	Status       string
+	Mood         string
 }
 
 // Friends are stored as ui.FriendInfo to share with the sidebar
@@ -138,36 +145,50 @@ func NewTazherApp() *TazherApp {
 		log.Fatal(err)
 	}
 
-	// Create Tazher 7 Compatible Schema
-	db.Exec(`CREATE TABLE IF NOT EXISTS Conversations (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		identity TEXT UNIQUE,
-		displayname TEXT,
-		last_message_id INTEGER,
-		creation_timestamp INTEGER,
-		type INTEGER
-	)`)
-	db.Exec(`CREATE TABLE IF NOT EXISTS Messages (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		convo_id INTEGER,
-		chatname TEXT,
-		author TEXT,
-		from_dispname TEXT,
-		body_xml TEXT,
-		timestamp INTEGER,
-		type INTEGER,
-		guid BLOB
-	)`)
-	db.Exec(`CREATE TABLE IF NOT EXISTS Contacts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		tazhername TEXT UNIQUE,
-		fullname TEXT,
-		displayname TEXT,
-		avatar_image BLOB,
-		avatar_path TEXT,
-		status TEXT DEFAULT 'Offline',
-		mood_text TEXT
-	)`)
+	// Skype 7.41 Forensic Schema
+	tables := []string{
+		`CREATE TABLE IF NOT EXISTS Accounts (
+			id INTEGER PRIMARY KEY,
+			skypename TEXT UNIQUE,
+			fullname TEXT,
+			emails TEXT,
+			mood_text TEXT,
+			avatar_image BLOB,
+			last_used_timestamp INTEGER
+		)`,
+		`CREATE TABLE IF NOT EXISTS Contacts (
+			id INTEGER PRIMARY KEY,
+			skypename TEXT UNIQUE,
+			displayname TEXT,
+			avatar_image BLOB,
+			mood_text TEXT,
+			availability INTEGER,
+			is_permanent INTEGER DEFAULT 1
+		)`,
+		`CREATE TABLE IF NOT EXISTS Conversations (
+			id INTEGER PRIMARY KEY,
+			identity TEXT UNIQUE,
+			displayname TEXT,
+			creation_timestamp INTEGER,
+			type INTEGER,
+			last_message_id INTEGER
+		)`,
+		`CREATE TABLE IF NOT EXISTS Messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			convo_id INTEGER,
+			chatname TEXT,
+			author TEXT,
+			from_dispname TEXT,
+			body_xml TEXT,
+			timestamp INTEGER,
+			type INTEGER,
+			sending_status INTEGER
+		)`,
+	}
+	for _, sql := range tables {
+		db.Exec(sql)
+	}
+
 	db.Exec(`CREATE TABLE IF NOT EXISTS Transfers (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		type INTEGER,
@@ -236,6 +257,9 @@ func NewTazherApp() *TazherApp {
 		}
 	}
 
+	// Audio Init
+	speaker.Init(44100, 44100/10)
+
 	// Initialize P2P DHT Node
 	p2pCtx := context.Background()
 	p2pNode, err := p2p.NewTazherNode(p2pCtx, 0) // Random port
@@ -252,13 +276,42 @@ func NewTazherApp() *TazherApp {
 			json.Unmarshal(data, &msg)
 			
 			// Process as if it came from the server
+			s.playSound("MessageReceived.wav")
 			s.HandleIncomingMessage(msg)
 		})
 	} else {
 		log.Printf("Failed to start P2P node: %v", err)
 	}
 
+	// Periodic Idle Check
+	s.OpenWindows = make(map[string]fyne.Window)
+	s.LastActivity = time.Now()
+	go func() {
+		for {
+			time.Sleep(30 * time.Second)
+			if time.Since(s.LastActivity) > 5*time.Minute && !s.isAway && s.Status == "Online" {
+				s.isAway = true
+				s.SendMessage(NexusMessage{Type: "status_update", Sender: s.Username, Body: "Away"})
+			} else if time.Since(s.LastActivity) < 5*time.Minute && s.isAway {
+				s.isAway = false
+				s.SendMessage(NexusMessage{Type: "status_update", Sender: s.Username, Body: "Online"})
+			}
+		}
+	}()
+
 	return s
+}
+
+func (s *TazherApp) playSound(filename string) {
+	f, err := os.Open("assets/sounds/" + filename)
+	if err != nil {
+		return
+	}
+	streamer, _, err := wav.Decode(f)
+	if err != nil {
+		return
+	}
+	speaker.Play(streamer)
 }
 
 // ---------- Network ----------
@@ -317,7 +370,7 @@ func (s *TazherApp) ConnectToServer(password string) error {
 		if !success {
 			return fmt.Errorf("invalid username or password")
 		}
-		s.PlaySound("Login.wav")
+		s.playSound("Login.wav")
 		
 		// Announce on DHT
 		if s.P2PNode != nil {
@@ -438,6 +491,9 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 	case "presence", "friend_status":
 		s.updateFriendStatus(msg.Sender, msg.Status)
 
+	case "profile_update":
+		s.updateFriendProfile(msg.Sender, msg.DisplayName, msg.Mood)
+
 	case "friend_request":
 		s.PlaySound("MessageReceived.wav")
 		s.PendingInbound = append(s.PendingInbound, msg.Sender)
@@ -551,31 +607,67 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 
 // ---------- Friend Management ----------
 
-func (s *TazherApp) updateFriendStatus(username, status string) {
-	s.DB.Exec("UPDATE Contacts SET status = ? WHERE tazhername = ?", status, username)
-	for i, f := range s.Friends {
-		if f.Username == username {
-			s.Friends[i].Status = status
-			break
-		}
-	}
-	if s.ContactList != nil {
-		s.ContactList.Refresh()
-	}
-}
-
 func (s *TazherApp) loadFriends() {
 	s.Friends = nil
-	rows, err := s.DB.Query("SELECT tazhername, COALESCE(status, 'offline'), COALESCE(avatar_path, '') FROM Contacts ORDER BY status DESC, tazhername ASC")
+	// Built-in Echo Service
+	s.Friends = append(s.Friends, ui.FriendInfo{
+		Username:    "Echo / Sound Test Service",
+		DisplayName: "Echo / Sound Test Service",
+		Status:      "Online",
+		Mood:        "Call me to test your microphone.",
+	})
+	
+	rows, err := s.DB.Query("SELECT skypename, displayname, mood_text, availability FROM Contacts ORDER BY availability DESC, skypename ASC")
 	if err != nil {
+		log.Printf("[DB] loadFriends: %v", err)
 		return
 	}
 	defer rows.Close()
-
 	for rows.Next() {
 		var f ui.FriendInfo
-		rows.Scan(&f.Username, &f.Status, &f.Avatar)
+		var avail int
+		rows.Scan(&f.Username, &f.DisplayName, &f.Mood, &avail)
+		// Map availability to Skype 7 status strings
+		switch avail {
+		case 1: f.Status = "Online"
+		case 2: f.Status = "Away"
+		case 3: f.Status = "Do Not Disturb"
+		default: f.Status = "Offline"
+		}
 		s.Friends = append(s.Friends, f)
+	}
+}
+
+func (s *TazherApp) updateFriendStatus(username, status string) {
+	avail := 0
+	switch status {
+	case "Online": avail = 1
+	case "Away": avail = 2
+	case "Do Not Disturb": avail = 3
+	}
+	s.DB.Exec("UPDATE Contacts SET availability = ? WHERE skypename = ?", avail, username)
+	for i, f := range s.Friends {
+		if f.Username == username {
+			s.Friends[i].Status = status
+			if s.Sidebar != nil {
+				s.Sidebar.Refresh()
+			}
+			break
+		}
+	}
+}
+
+func (s *TazherApp) updateFriendProfile(username, displayName, mood string) {
+	s.DB.Exec("UPDATE Contacts SET displayname = ?, mood_text = ? WHERE skypename = ?", displayName, mood, username)
+	for i, f := range s.Friends {
+		if f.Username == username {
+			s.Friends[i].DisplayName = displayName
+			s.Friends[i].Mood = mood
+			if s.Sidebar != nil {
+				s.Sidebar.Refresh()
+			}
+			break
+		}
 	}
 }
 
@@ -835,9 +927,8 @@ func (s *TazherApp) showIncomingCallDialog(from, sdp string) {
 
 // ---------- Chat Window ----------
 
-func (s *TazherApp) OpenChatWindow(name string) {
-	// Standardize title/identity
-	var isGroup bool
+func (s *TazherApp) OpenChat(name string) fyne.CanvasObject {
+	isGroup := false
 	var convoName string
 	s.DB.QueryRow("SELECT displayname FROM Conversations WHERE identity = ? AND type = 2", name).Scan(&convoName)
 	if convoName != "" {
@@ -910,20 +1001,21 @@ func (s *TazherApp) OpenChatWindow(name string) {
 
 	chatView := ui.NewChatView(chatProps)
 	// Inject the real scroll into the ChatView placeholder
-	chatView.Objects[1].(*fyne.Container).Objects[0] = container.NewBorder(nil, container.NewVBox(statusLabel, typingLabel), nil, nil, scroll)
+	// The ChatView container is a Border (header, bottom, nil, nil, center)
+	// Objects: [0:header, 1:bottom, 2:center]
+	chatView.Container.Objects[2] = container.NewBorder(nil, container.NewVBox(statusLabel, typingLabel), nil, nil, scroll)
 
-	s.ContentStack.Objects = []fyne.CanvasObject{chatView}
-	s.ContentStack.Refresh()
+	return chatView.Container
 }
 
 
 func (s *TazherApp) CreateHomeView() fyne.CanvasObject {
 	var lastMood string
 	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'mood'").Scan(&lastMood)
-	return ui.NewTazherHome(s.Username, lastMood, s.Slicer, func(val string) {
+	return ui.NewTazherHome(s.Username, lastMood, nil, s.Slicer, func(val string) {
 		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('mood', ?)", val)
 		s.SendMessage(NexusMessage{
-			Type:   "presence",
+			Type:   "status_update",
 			Sender: s.Username,
 			Status: "Online",
 			Body:   val,
@@ -933,10 +1025,8 @@ func (s *TazherApp) CreateHomeView() fyne.CanvasObject {
 
 func (s *TazherApp) showNewGroupDialog() {
 	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("Group name")
-
-	// Pre-checked friends to include
-	s.loadFriends()
+	nameEntry.SetPlaceHolder("E.g. The Mesh Lords")
+	
 	checks := make([]*widget.Check, len(s.Friends))
 	items := []fyne.CanvasObject{widget.NewLabelWithStyle("Select members:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})}
 	for i, f := range s.Friends {
@@ -1113,19 +1203,34 @@ func (s *TazherApp) ShowMainWindow() {
 		}
 	}
 
-	sidebarProps := ui.SidebarProps{
+	s.Sidebar = ui.NewTazherSidebar(ui.SidebarProps{
 		Username:    s.Username,
 		Status:      "Online", 
 		AvatarPath:  s.AvatarPath,
 		Slicer:      s.Slicer,
-		OnChatOpen:  s.OpenChatWindow,
+		OnChatOpen:  s.handleChatOpen,
 		OnAddFriend: s.showAddContactDialog,
 		OnNewGroup:  s.showNewGroupDialog,
 		RecentChats: s.Friends,
-		OnProfile:   s.ShowProfileWindow, // Added callback
-	}
-
-	s.Sidebar = ui.NewTazherSidebar(sidebarProps)
+		OnProfile:   s.ShowProfileWindow,
+		OnDialCall: func(number string) {
+			s.playSound("CallOutgoing.wav")
+			s.SendMessage(NexusMessage{
+				Type:   "pstn_call",
+				Sender: s.Username,
+				Body:   number,
+			})
+			dialog.ShowInformation("TAZHER PSTN", "Calling "+number+"...", s.MainWindow)
+		},
+		OnStatusChange: func(status string) {
+			s.SendMessage(NexusMessage{
+				Type:   "status_update",
+				Sender: s.Username,
+				Body:   status,
+			})
+		},
+		OnSettings: s.showSettingsWindow,
+	})
 	s.HomeView = s.CreateHomeView()
 	s.ContentStack = container.NewStack(s.HomeView)
 
@@ -1144,11 +1249,8 @@ func (s *TazherApp) ShowMainWindow() {
 	s.setupMenu(s.MainWindow)
 
 	// Layout: [Sidebar] | [Toolbar / Content]
-	split := container.NewHSplit(
-		s.Sidebar,
-		container.NewBorder(toolbar, nil, nil, nil, s.ContentStack),
-	)
-	split.Offset = 0.3
+	split := container.NewHSplit(s.Sidebar, container.NewBorder(toolbar, nil, nil, nil, s.ContentStack))
+	split.Offset = 0.25 // Default "Skype" 1:3 ratio
 
 	s.MainWindow.SetContent(split)
 	s.MainWindow.Show()
@@ -1202,7 +1304,13 @@ func (s *TazherApp) setupMenu(win fyne.Window) {
 		fyne.NewMenuItem("Contacts", func() {}),
 		fyne.NewMenuItem("Recent", func() {}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Compact View", func() {}),
+		fyne.NewMenuItem("Compact View", func() {
+			s.CompactMode = !s.CompactMode
+			s.Sidebar.Refresh()
+		}),
+		fyne.NewMenuItem("Split Window Mode", func() {
+			s.SplitMode = !s.SplitMode
+		}),
 	)
 
 	helpMenu := fyne.NewMenu("Help",
@@ -1548,11 +1656,12 @@ func (s *TazherApp) showRegistrationWindow(serverAddr string) {
 		c.ReadJSON(&result)
 		c.Close()
 
-		if result.Error != "" {
-			statusLabel.SetText(result.Error)
-			statusLabel.Show()
+		if result.Status == "pending_verification" {
+			s.showEmailVerificationDialog(usernameEntry.Text, win)
+		} else if result.Error != "" {
+			dialog.ShowError(fmt.Errorf(result.Error), win)
 		} else {
-			dialog.ShowInformation("Success", "Account created! You can now sign in.", win)
+			dialog.ShowInformation("Registration Success", "Account created! You can now sign in.", win)
 			win.Close()
 		}
 	})
@@ -1627,4 +1736,123 @@ func (s *TazherApp) CheckForUpdates() {
 			resp.Body.Close()
 		}
 	}()
+}
+
+func (s *TazherApp) showEmailVerificationDialog(username string, parent fyne.Window) {
+	codeEntry := widget.NewEntry()
+	codeEntry.SetPlaceHolder("6-digit code")
+
+	d := dialog.NewCustomConfirm("Verify Email", "Verify", "Cancel", container.NewVBox(
+		widget.NewLabel("We sent a code to your email. Enter it below to activate your Tazher identity:"),
+		codeEntry,
+	), func(ok bool) {
+		if ok {
+			s.SendMessage(NexusMessage{
+				Type:   "verify_email",
+				Sender: username,
+				Body:   codeEntry.Text,
+			})
+			dialog.ShowInformation("Tazher", "Activation code submitted. You can now try logging in.", parent)
+			parent.Close()
+		}
+	}, parent)
+	d.Show()
+}
+
+func (s *TazherApp) handleChatOpen(name string) {
+	if name == "Echo / Sound Test Service" {
+		s.showEchoCallDialog()
+		return
+	}
+
+	if s.SplitMode {
+		if win, ok := s.OpenWindows[name]; ok {
+			win.RequestFocus()
+			return
+		}
+		win := s.App.NewWindow("Chat: " + name)
+		win.Resize(fyne.NewSize(600, 500))
+		view := s.OpenChat(name) 
+		win.SetContent(view)
+		win.Show()
+		s.OpenWindows[name] = win
+		win.SetOnClosed(func() {
+			delete(s.OpenWindows, name)
+		})
+	} else {
+		view := s.OpenChat(name)
+		s.ContentStack.Objects = []fyne.CanvasObject{view}
+		s.ContentStack.Refresh()
+	}
+}
+
+func (s *TazherApp) showEchoCallDialog() {
+	win := s.App.NewWindow("TAZHER Echo Service")
+	win.Resize(fyne.NewSize(350, 450))
+	
+	lbl := widget.NewLabelWithStyle("Welcome to the Tazher Echo Sound Test Service.", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	status := widget.NewLabel("Connected...")
+	
+	avatar := ui.NewAvatarWithStatus(120, "Online", "")
+	
+	content := container.NewVBox(
+		layout.NewSpacer(),
+		container.NewCenter(avatar),
+		lbl,
+		container.NewCenter(status),
+		layout.NewSpacer(),
+		widget.NewButtonWithIcon("End Call", theme.CancelIcon(), func() { win.Close() }),
+	)
+	
+	win.SetContent(container.NewStack(canvas.NewRectangle(color.White), container.NewPadded(content)))
+	win.Show()
+	
+	go func() {
+		s.playSound("EchoGreeting.wav")
+		time.Sleep(5 * time.Second)
+		status.SetText("Recording: 10s remaining...")
+		s.playSound("Beep.wav")
+		time.Sleep(10 * time.Second)
+		s.playSound("Beep.wav")
+		status.SetText("Playing back your message...")
+		time.Sleep(5 * time.Second)
+		win.Close()
+	}()
+}
+
+func (s *TazherApp) showSettingsWindow() {
+	win := s.App.NewWindow("Tazher — Settings")
+	win.Resize(fyne.NewSize(400, 500))
+
+	compact := widget.NewCheck("Compact Mode", func(b bool) {
+		s.CompactMode = b
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('compact_mode', ?)", b)
+		dialog.ShowInformation("Tazher", "Restart app to apply density changes", win)
+	})
+	compact.Checked = s.CompactMode
+
+	sounds := widget.NewCheck("Enable Sounds", func(b bool) {
+		s.SoundEnabled = b
+	})
+	sounds.Checked = s.SoundEnabled
+
+	split := widget.NewCheck("Split Window Mode", func(b bool) {
+		s.SplitMode = b
+	})
+	split.Checked = s.SplitMode
+
+	form := &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Display", Widget: compact},
+			{Text: "Audio", Widget: sounds},
+			{Text: "Workflow", Widget: split},
+		},
+	}
+
+	win.SetContent(container.NewPadded(container.NewVBox(
+		widget.NewLabelWithStyle("Application Settings", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewSeparator(),
+		form,
+	)))
+	win.Show()
 }

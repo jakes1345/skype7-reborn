@@ -3,8 +3,10 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"net/smtp"
 	"os"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	_ "modernc.org/sqlite"
 	"golang.org/x/crypto/bcrypt"
+	"net/url"
 )
 
 // NexusMessage is the wire protocol for Private Skype
@@ -63,6 +66,10 @@ func (s *NexusServer) initDB() {
 			display_name TEXT,
 			password_hash TEXT NOT NULL,
 			salt TEXT NOT NULL,
+			is_verified INTEGER DEFAULT 0,
+			verification_code TEXT,
+			phone_number TEXT,
+			phone_verified INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS friends (
@@ -103,23 +110,66 @@ func (s *NexusServer) initDB() {
 
 // ---------- Account Management (bcrypt) ----------
 
-func (s *NexusServer) registerUser(username, email, mood, password string) error {
+func (s *NexusServer) registerUser(username, email, mood, password string) (string, error) {
 	if len(password) < 4 {
-		return errShortPassword
+		return "", errShortPassword
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = s.DB.Exec("INSERT INTO users (username, email, mood, password_hash, salt) VALUES (?, ?, ?, ?, '')",
-		username, email, mood, string(hash))
-	return err
+	
+	code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	
+	_, err = s.DB.Exec("INSERT INTO users (username, email, mood, password_hash, salt, verification_code) VALUES (?, ?, ?, ?, '', ?)",
+		username, email, mood, string(hash), code)
+	return code, err
+}
+
+func (s *NexusServer) verifyUser(username, code string) bool {
+	var dbCode string
+	err := s.DB.QueryRow("SELECT verification_code FROM users WHERE username = ?", username).Scan(&dbCode)
+	if err != nil || dbCode != code {
+		return false
+	}
+	_, err = s.DB.Exec("UPDATE users SET is_verified = 1, verification_code = NULL WHERE username = ?", username)
+	return err == nil
+}
+
+func (s *NexusServer) sendEmail(to, subject, body string) error {
+	host := os.Getenv("SMTP_HOST")
+	port := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := os.Getenv("SMTP_PASS")
+
+	if host == "" || user == "" || pass == "" {
+		log.Printf("[MAIL-SIM] To: %s | Subject: %s | Body: %s", to, subject, body)
+		return nil
+	}
+
+	auth := smtp.PlainAuth("", user, pass, host)
+	msg := []byte("To: " + to + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\r\n" +
+		"\r\n" +
+		body + "\r\n")
+
+	addr := fmt.Sprintf("%s:%s", host, port)
+	if port == "" {
+		addr = host + ":587"
+	}
+
+	return smtp.SendMail(addr, auth, user, []string{to}, msg)
 }
 
 func (s *NexusServer) authenticateUser(username, password string) bool {
 	var hash string
-	err := s.DB.QueryRow("SELECT password_hash FROM users WHERE username = ?", username).Scan(&hash)
+	var isVerified bool
+	err := s.DB.QueryRow("SELECT password_hash, is_verified FROM users WHERE username = ?", username).Scan(&hash, &isVerified)
 	if err != nil {
+		return false
+	}
+	if !isVerified {
 		return false
 	}
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
@@ -377,18 +427,76 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				s.broadcastPresence(username, "Offline")
 				log.Printf("User %s disconnected", username)
 			}
-			break
+			return
 		}
 
 		switch msg.Type {
+		case "pstn_call":
+			number := msg.Body
+			// SECURITY CHECK: Verify this number belongs to this sender
+			var verified int
+			err := s.DB.QueryRow("SELECT phone_verified FROM users WHERE username = ? AND phone_number = ?", username, number).Scan(&verified)
+			if err != nil || verified == 0 {
+				ws.WriteJSON(NexusMessage{Type: "pstn_status", Error: "Caller identity not verified. Please link your phone in Settings."})
+				continue
+			}
+
+			log.Printf("[PSTN-SECURE] User %s initiating call to %s", msg.Sender, number)
+			err = s.initiateTwilioCall(number)
+			if err != nil {
+				ws.WriteJSON(NexusMessage{Type: "pstn_status", Error: "Telephony error: " + err.Error()})
+			} else {
+				ws.WriteJSON(NexusMessage{Type: "pstn_status", Status: "Connecting via Sovereign Bridge..."})
+			}
 
 		case "register":
-			err := s.registerUser(msg.Sender, msg.Email, msg.Mood, msg.Body)
+			code, err := s.registerUser(msg.Sender, msg.Email, msg.Mood, msg.Body)
 			if err != nil {
 				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "Username already taken or database error"})
 			} else {
-				log.Printf("New user registered: %s (%s) - %s", msg.Sender, msg.Email, msg.Mood)
-				ws.WriteJSON(NexusMessage{Type: "register_result", Status: "ok"})
+				log.Printf("New user registered: %s (%s) - Code: %s", msg.Sender, msg.Email, code)
+				go s.sendEmail(msg.Email, "Activate your Tazher Identity", 
+					"<h1>Welcome to Tazher</h1><p>Your activation code is: <b>"+code+"</b></p><p>Enter this in the app to start using the mesh.</p>")
+				ws.WriteJSON(NexusMessage{Type: "register_result", Status: "pending_verification"})
+			}
+
+		case "verify_email":
+			if s.verifyUser(msg.Sender, msg.Body) {
+				ws.WriteJSON(NexusMessage{Type: "verify_result", Status: "ok"})
+			} else {
+				ws.WriteJSON(NexusMessage{Type: "verify_result", Error: "Invalid verification code"})
+			}
+
+		case "status_update":
+			s.Mu.Lock()
+			if client, ok := s.Clients[username]; ok {
+				client.Status = msg.Body
+				log.Printf("User %s changed status to %s", username, msg.Body)
+			}
+			s.Mu.Unlock()
+			s.broadcastPresence(username, msg.Body)
+
+		case "request_phone_link":
+			number := msg.Body
+			code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+			_, err := s.DB.Exec("UPDATE users SET verification_code = ?, phone_number = ? WHERE username = ?", code, number, username)
+			if err != nil {
+				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Error: "Update failed"})
+			} else {
+				log.Printf("[SMS] Sending verification to %s: %s", number, code)
+				go s.sendSMS(number, "Your TAZHER verification code is: "+code)
+				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Status: "code_sent"})
+			}
+
+		case "verify_phone_link":
+			var dbCode string
+			err := s.DB.QueryRow("SELECT verification_code FROM users WHERE username = ?", username).Scan(&dbCode)
+			if err == nil && dbCode == msg.Body {
+				s.DB.Exec("UPDATE users SET phone_verified = 1, verification_code = NULL WHERE username = ?", username)
+				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Status: "verified"})
+			} else {
+				s.DB.Exec("UPDATE users SET verification_code = NULL WHERE username = ?", username)
+				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Error: "Invalid code. Security lockout: please request a new code."})
 			}
 
 		case "update_profile":
@@ -400,6 +508,8 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			} else {
 				log.Printf("Profile updated for %s: %s | %s", msg.Sender, msg.DisplayName, msg.Mood)
 				ws.WriteJSON(NexusMessage{Type: "update_result", Status: "ok"})
+				// Broadcast this change to all online friends
+				s.broadcastProfileUpdate(msg.Sender, msg.DisplayName, msg.Mood)
 			}
 
 		case "auth":
@@ -455,6 +565,10 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 
 		case "msg":
+			if msg.Recipient == "TazherBot" {
+				s.handleBotMessage(ws, msg)
+				continue
+			}
 			if username == "" {
 				continue
 			}
@@ -710,20 +824,15 @@ const rootHTML = `<!doctype html>
 	</div>
 </body></html>`
 
-func rootHandler(w http.ResponseWriter, r *http.Request) {
+func (s *NexusServer) landingHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	host := r.Host
-	if host == "" {
-		host = "tazher7-reborn.fly.dev"
-	}
-	w.Write([]byte(strings.ReplaceAll(rootHTML, "{{HOST}}", host)))
+	http.ServeFile(w, r, "templates/landing.html")
 }
 
-func versionHandler(w http.ResponseWriter, r *http.Request) {
+func (s *NexusServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	v := os.Getenv("TAZHER_LATEST_VERSION")
 	if v == "" {
 		v = "1.0.0-Tazher"
@@ -767,10 +876,13 @@ func main() {
 	}
 	server.initDB()
 
-	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/cable", server.handleConnections)
-	http.HandleFunc("/health", healthHandler)
-	http.HandleFunc("/version", versionHandler)
+	http.HandleFunc("/ws", server.handleConnections)
+	http.HandleFunc("/api/v1/version", server.versionHandler)
+	http.HandleFunc("/api/v1/profile/", server.profileHandler)
+	http.HandleFunc("/api/v1/avatars/", server.avatarHandler)
+	http.HandleFunc("/twiml/outbound", server.twimlHandler)
+	http.HandleFunc("/", server.landingHandler)
+	http.HandleFunc("/version", server.versionHandler)
 
 	bindAddr := os.Getenv("BIND_ADDR")
 	if bindAddr == "" {
@@ -795,4 +907,142 @@ func main() {
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
+}
+
+func (s *NexusServer) sendSMS(to, body string) error {
+	sid := os.Getenv("TWILIO_SID")
+	token := os.Getenv("TWILIO_TOKEN")
+	from := os.Getenv("TWILIO_FROM")
+
+	if sid == "" || token == "" || from == "" {
+		log.Printf("[SMS-SIM] To: %s | Body: %s", to, body)
+		return nil
+	}
+
+	apiURL := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", sid)
+	v := url.Values{}
+	v.Set("To", to)
+	v.Set("From", from) 
+	v.Set("Body", body)
+
+	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(v.Encode()))
+	req.SetBasicAuth(sid, token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func (s *NexusServer) broadcastProfileUpdate(username, displayName, mood string) {
+	s.Mu.RLock()
+	defer s.Mu.RUnlock()
+	msg := NexusMessage{
+		Type:        "profile_update",
+		Sender:      username,
+		DisplayName: displayName,
+		Mood:        mood,
+	}
+	for _, client := range s.Clients {
+		if client.Username != username {
+			client.Conn.WriteJSON(msg)
+		}
+	}
+}
+
+func (s *NexusServer) profileHandler(w http.ResponseWriter, r *http.Request) {
+	username := strings.TrimPrefix(r.URL.Path, "/api/v1/profile/")
+	if username == "" {
+		http.Error(w, "Username required", 400)
+		return
+	}
+	var displayName, mood string
+	err := s.DB.QueryRow("SELECT display_name, mood FROM users WHERE username = ?", username).Scan(&displayName, &mood)
+	if err != nil {
+		http.Error(w, "User not found", 404)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"username":     username,
+		"display_name": displayName,
+		"mood":         mood,
+	})
+}
+
+func (s *NexusServer) avatarHandler(w http.ResponseWriter, r *http.Request) {
+	username := strings.TrimPrefix(r.URL.Path, "/api/v1/avatars/")
+	if username == "" {
+		http.Error(w, "Username required", 400)
+		return
+	}
+	// Securely serve avatar file
+	path := "avatars/" + username + ".png"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		http.ServeFile(w, r, "assets/default_avatar.png")
+		return
+	}
+	http.ServeFile(w, r, path)
+}
+
+func (s *NexusServer) handleBotMessage(ws *websocket.Conn, msg NexusMessage) {
+	reply := NexusMessage{
+		Type:      "msg",
+		Sender:    "TazherBot",
+		Recipient: msg.Sender,
+		Body:      "I am the Tazher Mesh Assistant. Try these commands: /mesh, /version, /pstn",
+	}
+
+	cmd := strings.ToLower(strings.TrimSpace(msg.Body))
+	switch {
+	case cmd == "/mesh":
+		s.Mu.RLock()
+		count := len(s.Clients)
+		s.Mu.RUnlock()
+		reply.Body = fmt.Sprintf("The TAZHER Mesh currently has %d active sovereign peers.", count)
+	case cmd == "/version":
+		reply.Body = "Nexus Server v1.0.0-Tazher | Build: Enterprise-Mesh"
+	case cmd == "/pstn":
+		reply.Body = "PSTN Bridge is ACTIVE. Link your phone in Settings to use Caller ID."
+	}
+	ws.WriteJSON(reply)
+}
+
+func (s *NexusServer) twimlHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/xml")
+	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Conference>TAZHER_MESH_BRIDGE</Conference></Dial></Response>`))
+}
+
+func (s *NexusServer) initiateTwilioCall(to string) error {
+	sid := os.Getenv("TWILIO_SID")
+	token := os.Getenv("TWILIO_TOKEN")
+	from := os.Getenv("TWILIO_FROM")
+	appURL := os.Getenv("TAZHER_APP_URL")
+
+	if sid == "" || token == "" || from == "" || appURL == "" {
+		log.Printf("[PSTN-SIM] Initiating call to %s via TwiML Hub", to)
+		return nil
+	}
+
+	apiURL := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Calls.json", sid)
+	v := url.Values{}
+	v.Set("To", to)
+	v.Set("From", from)
+	v.Set("Url", appURL+"/twiml/outbound")
+
+	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(v.Encode()))
+	req.SetBasicAuth(sid, token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }

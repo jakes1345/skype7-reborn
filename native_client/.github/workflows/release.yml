@@ -29,13 +29,12 @@ jobs:
           sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev gcc-mingw-w64
 
       - name: Build Binary
-        working-directory: native_client
         run: |
-          go mod download
+          go work sync
           if [ "${{ matrix.target }}" == "windows" ]; then
-            GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -ldflags="-H windowsgui" -o ../tazher-windows.exe .
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -ldflags="-H windowsgui" -o tazher-windows.exe ./native_client
           else
-            GOOS=linux GOARCH=amd64 go build -o ../tazher-linux .
+            GOOS=linux GOARCH=amd64 go build -o tazher-linux ./native_client
           fi
 
       - name: Upload Artifact
@@ -57,11 +56,10 @@ jobs:
           cache: true
 
       - name: Build Binary
-        working-directory: native_client
         run: |
-          go mod download
-          GOOS=darwin GOARCH=amd64 go build -o ../tazher-macos .
-          GOOS=darwin GOARCH=arm64 go build -o ../tazher-macos-arm64 .
+          go work sync
+          GOOS=darwin GOARCH=amd64 go build -o tazher-macos ./native_client
+          GOOS=darwin GOARCH=arm64 go build -o tazher-macos-arm64 ./native_client
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

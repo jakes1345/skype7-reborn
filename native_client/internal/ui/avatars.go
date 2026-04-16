@@ -8,6 +8,14 @@ import (
 	"fyne.io/fyne/v2/container"
 )
 
+func brighten(c uint8, amount int) uint8 {
+	v := int(c) + amount
+	if v > 255 {
+		return 255
+	}
+	return uint8(v)
+}
+
 // NewAvatarWithStatus renders a circular avatar with a presence dot in the
 // bottom-right corner — the authentic Tazher 7 look.
 func NewAvatarWithStatus(size float32, status string, imagePath string) fyne.CanvasObject {
@@ -37,13 +45,23 @@ func NewAvatarWithStatus(size float32, status string, imagePath string) fyne.Can
 		statusColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
 	}
 
-	badge := canvas.NewCircle(statusColor)
-	badge.StrokeColor = color.White
-	badge.StrokeWidth = 1.5
+	// Status Orb (Aero Glass 3D Effect)
+	highlightColor := color.NRGBA{
+		R: brighten(statusColor.R, 60),
+		G: brighten(statusColor.G, 60),
+		B: brighten(statusColor.B, 60),
+		A: 255,
+	}
+	badge := canvas.NewRadialGradient(highlightColor, statusColor)
+	
+	// White "High-Polish" outer frame
+	frame := canvas.NewCircle(color.White)
+	frame.StrokeColor = color.NRGBA{R: 0, G: 0, B: 0, A: 20}
+	frame.StrokeWidth = 1
 
 	// Badge is ~1/3 the avatar size, anchored to bottom-right via absolute positioning.
 	badgeSize := size / 3
-	wrap := container.NewStack(base, container.NewWithoutLayout(badge))
+	wrap := container.NewStack(frame, container.NewPadded(base), container.NewWithoutLayout(badge))
 	badge.Resize(fyne.NewSize(badgeSize, badgeSize))
 	badge.Move(fyne.NewPos(size-badgeSize-2, size-badgeSize-2))
 	

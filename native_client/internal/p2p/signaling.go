@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
@@ -19,14 +20,27 @@ func (n *TazherNode) SetupSignalingHandler(handler SignalingHandler) {
 		defer s.Close()
 		decoder := json.NewDecoder(s)
 		for {
-			var msg interface{} // This will be unmarshaled into NexusMessage later
-			if err := decoder.Decode(&msg); err != nil {
+			var raw map[string]interface{}
+			if err := decoder.Decode(&raw); err != nil {
 				if err != io.EOF {
 					log.Printf("P2P Signaling Read Error: %v", err)
 				}
 				return
 			}
-			handler(msg)
+
+			// Forensic Identity Verification
+			sigRaw, ok := raw["signature"].(string)
+			if ok {
+				body, _ := json.Marshal(raw["body"])
+				pubKey := s.Conn().RemotePublicKey()
+				sig, _ := crypto.ConfigDecodeKey(sigRaw)
+				valid, _ := pubKey.Verify(body, sig)
+				if !valid {
+					log.Printf("[SECURITY] Rejected unverified message from %s", s.Conn().RemotePeer())
+					continue
+				}
+			}
+			handler(raw["body"])
 		}
 	})
 }
@@ -39,5 +53,15 @@ func (n *TazherNode) SendSignaling(username string, msg interface{}) error {
 	}
 	defer s.Close()
 
-	return json.NewEncoder(s).Encode(msg)
+	body, _ := json.Marshal(msg)
+	privKey := n.Host.Peerstore().PrivKey(n.Host.ID())
+	sig, _ := privKey.Sign(body)
+	sigStr := crypto.ConfigEncodeKey(sig)
+
+	envelope := map[string]interface{}{
+		"body":      msg,
+		"signature": sigStr,
+	}
+
+	return json.NewEncoder(s).Encode(envelope)
 }

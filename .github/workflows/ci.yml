@@ -25,8 +25,9 @@ jobs:
 
       - name: Build TAZHER Engine
         run: |
-          go build ./native_client
-          go build ./nexus_server
+          go work sync
+          go build -o tazher-native-linux ./native_client
+          go build -o tazher-nexus-linux ./nexus_server
 
       #- name: Test TAZHER Suite
       #  run: go test -v ./native_client/... ./nexus_server/...

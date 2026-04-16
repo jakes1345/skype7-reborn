@@ -10,7 +10,7 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-// Real-time audio I/O for Skype calls.
+// Real-time audio I/O for Tazher calls.
 //
 // Codec: PCMU (G.711 µ-law), 8 kHz, mono. Pure Go, no cgo.
 // Mic: PulseAudio capture @ 8 kHz s16le mono.
@@ -88,7 +88,7 @@ var (
 func getPulse() (*pulse.Client, error) {
 	pulseOnce.Do(func() {
 		pulseClient, pulseErr = pulse.NewClient(
-			pulse.ClientApplicationName("Private Skype"),
+			pulse.ClientApplicationName("Private Tazher"),
 		)
 	})
 	return pulseClient, pulseErr

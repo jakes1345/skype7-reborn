@@ -4,6 +4,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"image/color"
@@ -18,7 +19,13 @@ type ChatViewProps struct {
 	OnSendFile  func()
 }
 
-func NewChatView(props ChatViewProps) *fyne.Container {
+type ChatView struct {
+	Container *fyne.Container
+	Pulsar    *TazherPulsar
+}
+
+func NewChatView(props ChatViewProps) *ChatView {
+	pulsar := NewTazherPulsar()
 	// 1. Header
 	icon := canvas.NewCircle(color.NRGBA{G: 200, B: 0, A: 255})
 	icon.Resize(fyne.NewSize(12, 12))
@@ -44,19 +51,36 @@ func NewChatView(props ChatViewProps) *fyne.Container {
 	// 3. Input Area
 	input := widget.NewMultiLineEntry()
 	input.SetPlaceHolder("Type a message here...")
-	
-	sendBtn := widget.NewButtonWithIcon("", theme.MailSendIcon(), func() {
-		props.OnSend(input.Text)
-		input.SetText("")
+
+	emojiBtn := widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
+		// Just show at 0,0 for now as simple test
+		ShowEmoticonPopup(fyne.CurrentApp().Driver().AllWindows()[0].Canvas(), fyne.NewPos(100, 100), func(s string) {
+			input.SetText(input.Text + s)
+		})
 	})
 	
-	inputArea := container.NewBorder(nil, nil, nil, sendBtn, input)
+	fileBtn := widget.NewButtonWithIcon("", theme.FileIcon(), props.OnSendFile)
+	
+	sendBtn := widget.NewButtonWithIcon("", theme.MailSendIcon(), func() {
+		if input.Text != "" {
+			props.OnSend(input.Text)
+			input.SetText("")
+		}
+	})
+	
+	leftActions := container.NewHBox(emojiBtn, fileBtn)
+	inputArea := container.NewBorder(nil, nil, leftActions, sendBtn, container.NewPadded(input))
 	
 	// Final Layout
-	return container.NewBorder(
+	main := container.NewBorder(
 		headerContainer,
-		container.NewVBox(widget.NewSeparator(), container.NewPadded(inputArea)),
+		container.NewVBox(
+			container.NewHBox(layout.NewSpacer(), pulsar.Container, layout.NewSpacer()),
+			widget.NewSeparator(), 
+			container.NewPadded(inputArea),
+		),
 		nil, nil,
 		container.NewPadded(msgPlaceholder),
 	)
+	return &ChatView{Container: main, Pulsar: pulsar}
 }

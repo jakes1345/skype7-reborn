@@ -48,6 +48,7 @@ func NewTazherNode(ctx context.Context, listenPort int) (*TazherNode, error) {
 		),
 		libp2p.NATPortMap(),       // UPnP/NAT-PMP
 		libp2p.EnableRelay(),      // Support Circuit Relay v2 (client)
+		libp2p.EnableRelayService(), // Support Circuit Relay (server aka Supernode)
 		libp2p.EnableHolePunching(), // DCUtR (Direct Connection Upgrade through Relay)
 	)
 	if err != nil {
@@ -85,10 +86,20 @@ type discoveryNotifee struct {
 }
 
 func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
-	log.Printf("[P2P] LAN Peer Found: %s", pi.ID.String())
+	log.Printf("[P2P-LAN] Found local sovereign: %s", pi.ID.String())
 	if err := n.h.Connect(n.ctx, pi); err != nil {
-		log.Printf("[P2P] Failed to connect to LAN peer %s: %v", pi.ID, err)
+		log.Printf("[P2P-LAN] Failed to bridge to local peer: %v", err)
+		return
 	}
+	
+	// Create a persistent signaling stream to this local peer immediately
+	s, err := n.h.NewStream(n.ctx, pi.ID, protocol.ID(ProtocolID))
+	if err != nil {
+		log.Printf("[P2P-LAN] Failed to open signaling stream: %v", err)
+		return
+	}
+	log.Printf("[P2P-LAN] Native Mesh Link established with %s", pi.ID.String())
+	s.Close()
 }
 
 // Bootstrap connects to known stable nodes to join the network

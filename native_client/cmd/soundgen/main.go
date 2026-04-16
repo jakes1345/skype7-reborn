@@ -1,4 +1,4 @@
-// soundgen generates classic Skype-style sound effects as WAV files.
+// soundgen generates classic Shadow-style sound effects as WAV files.
 // Run: go run ./cmd/soundgen
 package main
 
@@ -15,7 +15,7 @@ func main() {
 	dir := filepath.Join("assets", "sounds")
 	os.MkdirAll(dir, 0755)
 
-	// Classic Skype 7 sound approximations
+	// Classic Shadow 7 sound approximations
 	generate(dir, "Login.wav", loginSound())
 	generate(dir, "login.wav", loginSound()) // duplicate name compat
 	generate(dir, "MessageReceived.wav", messageReceivedSound())
@@ -29,7 +29,7 @@ func main() {
 	println("All sounds generated in", dir)
 }
 
-// loginSound: the classic ascending "boo-doo-doo-doo-DOOP" Skype login
+// loginSound: the classic ascending "boo-doo-doo-doo-DOOP" Shadow login
 func loginSound() []float64 {
 	dur := 1.8
 	samples := int(dur * sampleRate)
@@ -68,13 +68,13 @@ func messageReceivedSound() []float64 {
 	return buf
 }
 
-// callIncomingSound: the iconic Skype ringtone - repeating pattern ~4 seconds
+// callIncomingSound: the iconic Shadow ringtone - repeating pattern ~4 seconds
 func callIncomingSound() []float64 {
 	dur := 4.0
 	samples := int(dur * sampleRate)
 	buf := make([]float64, samples)
 
-	// Classic Skype ring: alternating two-note pattern repeated
+	// Classic Shadow ring: alternating two-note pattern repeated
 	for rep := 0; rep < 4; rep++ {
 		offset := float64(rep) * 1.0
 		// "brrr-RING brrr-RING" pattern

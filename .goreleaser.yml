@@ -1,6 +1,6 @@
 version: 2
 
-project_name: skype7-reborn
+project_name: shadow-reborn
 
 # No root go.mod — we're a workspace. Run tidy in each module instead.
 before:
@@ -60,12 +60,12 @@ changelog:
 release:
   github:
     owner: "{{ .Env.GITHUB_OWNER }}"
-    name: skype7-reborn
+    name: shadow-reborn
   mode: keep-existing
   draft: false
   prerelease: auto
   header: |
-    ## Skype 7 Reborn — {{ .Tag }}
+    ## Shadow — {{ .Tag }}
 
     Download the archive for your platform below. Extract and run `skype`
     (the client) or `skype-nexus` (the relay server).
