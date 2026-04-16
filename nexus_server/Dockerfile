@@ -10,6 +10,8 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=build /out/nexus-server /app/nexus-server
+COPY templates /app/templates
+COPY public /app/public
 
 ENV PORT=8080
 ENV DB_PATH=/data/nexus.db

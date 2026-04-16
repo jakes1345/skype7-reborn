@@ -14,9 +14,11 @@ type ChatViewProps struct {
 	Name        string
 	Status      string
 	IsGroup     bool
+	Slicer      *AeroSlicer
 	OnCall      func()
 	OnSend      func(text string)
 	OnSendFile  func()
+	OnTyping    func()
 }
 
 type ChatView struct {
@@ -28,6 +30,13 @@ func NewChatView(props ChatViewProps) *ChatView {
 	pulsar := NewTazherPulsar()
 	// 1. Header
 	icon := canvas.NewCircle(color.NRGBA{G: 200, B: 0, A: 255})
+	if props.Slicer != nil {
+		// Use the real status dot
+		res := props.Slicer.GetStatusIcon(props.Status)
+		iconImg := canvas.NewImageFromResource(res)
+		iconImg.Resize(fyne.NewSize(12, 12))
+		icon = canvas.NewCircle(color.Transparent) // Placeholder to keep logic simple for now
+	}
 	icon.Resize(fyne.NewSize(12, 12))
 	
 	nameLabel := widget.NewLabelWithStyle(props.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
@@ -51,10 +60,16 @@ func NewChatView(props ChatViewProps) *ChatView {
 	// 3. Input Area
 	input := widget.NewMultiLineEntry()
 	input.SetPlaceHolder("Type a message here...")
+	input.OnChanged = func(s string) {
+		if s != "" {
+			props.OnTyping()
+		}
+	}
 
 	emojiBtn := widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
-		// Just show at 0,0 for now as simple test
-		ShowEmoticonPopup(fyne.CurrentApp().Driver().AllWindows()[0].Canvas(), fyne.NewPos(100, 100), func(s string) {
+		// Use the correct popup with slicer
+		win := fyne.CurrentApp().Driver().AllWindows()[0]
+		ShowEmoticonPopup(win.Canvas(), props.Slicer, fyne.NewPos(100, 300), func(s string) {
 			input.SetText(input.Text + s)
 		})
 	})

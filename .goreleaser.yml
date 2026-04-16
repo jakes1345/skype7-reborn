@@ -1,6 +1,6 @@
 version: 2
 
-project_name: shadow-reborn
+project_name: tazher-reborn
 
 # No root go.mod — we're a workspace. Run tidy in each module instead.
 before:
@@ -9,10 +9,10 @@ before:
     - bash -c "cd nexus_server  && go mod tidy"
 
 builds:
-  - id: skype
+  - id: tazher
     main: ./native_client
     dir: .
-    binary: skype
+    binary: tazher
     env:
       - CGO_ENABLED=1
     goos: [linux, windows, darwin]
@@ -20,10 +20,10 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-  - id: skype-nexus
+  - id: tazher-nexus
     main: ./nexus_server
     dir: .
-    binary: skype-nexus
+    binary: tazher-nexus
     env:
       - CGO_ENABLED=0
     goos: [linux, windows, darwin]
@@ -39,6 +39,8 @@ archives:
       - README.md
       - LICENSE
       - native_client/assets/**/*
+      - nexus_server/templates/**/*
+      - nexus_server/public/**/*
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -59,13 +61,16 @@ changelog:
 
 release:
   github:
-    owner: "{{ .Env.GITHUB_OWNER }}"
-    name: shadow-reborn
+    owner: jakes1345
+    name: skype7-reborn
   mode: keep-existing
   draft: false
   prerelease: auto
   header: |
-    ## Shadow — {{ .Tag }}
+    ## TAZHER — {{ .Tag }}
 
-    Download the archive for your platform below. Extract and run `skype`
-    (the client) or `skype-nexus` (the relay server).
+    TAZHER: Sovereign P2P Communication Engine.
+    
+    This release includes the TAZHER Client and the Nexus Relay Server.
+    - **tazher**: The native-compiled communication client.
+    - **tazher-nexus**: The edge relay server for central distribution and mesh stats.

@@ -8,7 +8,31 @@ import (
 )
 
 type EmoticonPickerProps struct {
+	Slicer     *AeroSlicer
 	OnSelected func(shortcut string)
+}
+
+// EmoticonButton is a simple wrapper for pickable emoticons
+type EmoticonButton struct {
+	widget.BaseWidget
+	emoji  *AnimatedEmoji
+	action func()
+}
+
+func NewEmoticonButton(emoji *AnimatedEmoji, action func()) *EmoticonButton {
+	eb := &EmoticonButton{emoji: emoji, action: action}
+	eb.ExtendBaseWidget(eb)
+	return eb
+}
+
+func (eb *EmoticonButton) Tapped(_ *fyne.PointEvent) {
+	if eb.action != nil {
+		eb.action()
+	}
+}
+
+func (eb *EmoticonButton) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(eb.emoji)
 }
 
 func NewEmoticonPicker(props EmoticonPickerProps) fyne.CanvasObject {
@@ -17,28 +41,33 @@ func NewEmoticonPicker(props EmoticonPickerProps) fyne.CanvasObject {
 		"(smile)", "(sad)", "(laugh)", "(cool)", "(surprised)",
 		"(wink)", "(crying)", "(sweat)", "(speechless)", "(kiss)",
 		"(cheeky)", "(blush)", "(wonder)", "(sleepy)", "(dull)",
-		"(inlove)", "(egrin)", "(finger)", "(party)", "(beer)",
+		"(inlove)", "(egrin)", "(party)", "(beer)",
 		"(dance)", "(rock)", "(punch)", "(flex)", "(highfive)",
 	}
 
 	grid := container.New(layout.NewGridLayout(5))
 	for _, s := range shortcuts {
 		shortcut := s
-		// In a full implementation, we'd use NewEmoticonImage here.
-		// For the picker grid, we'll use buttons with the shortcut as label for now.
-		btn := widget.NewButton(shortcut, func() {
+		emoji := NewAnimatedEmoji(shortcut, props.Slicer)
+		if emoji == nil {
+			continue
+		}
+		
+		btn := NewEmoticonButton(emoji, func() {
 			props.OnSelected(shortcut)
 		})
-		btn.Importance = widget.LowImportance
 		grid.Add(btn)
 	}
 
 	return container.NewScroll(grid)
 }
 
-func ShowEmoticonPopup(canvas fyne.Canvas, pos fyne.Position, onSelected func(string)) {
-	picker := NewEmoticonPicker(EmoticonPickerProps{OnSelected: onSelected})
-	picker.Resize(fyne.NewSize(200, 250))
+func ShowEmoticonPopup(canvas fyne.Canvas, slicer *AeroSlicer, pos fyne.Position, onSelected func(string)) {
+	picker := NewEmoticonPicker(EmoticonPickerProps{
+		Slicer:     slicer,
+		OnSelected: onSelected,
+	})
+	picker.Resize(fyne.NewSize(240, 300))
 	
 	pop := widget.NewPopUp(picker, canvas)
 	pop.ShowAtPosition(pos)

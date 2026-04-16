@@ -48,8 +48,8 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean --id skype --id skype-nexus
+          args: release --clean --id tazher --id tazher-nexus
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_OWNER: jakes1345
           CC: ${{ matrix.target == 'windows' && 'x86_64-w64-mingw32-gcc' || '' }}

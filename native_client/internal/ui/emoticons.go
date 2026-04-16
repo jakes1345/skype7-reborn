@@ -1,9 +1,6 @@
 package ui
 
 import (
-	"image"
-	_ "image/png"
-	"os"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -16,59 +13,64 @@ type AnimatedEmoji struct {
 	imageObj *canvas.Image
 	frames   int
 	current  int
+	slicer   *AeroSlicer
+	shortcut string
 }
 
 // EmoticonMap defines the coordinates in the master spritesheet
-// Format: Shortcut -> {X, Y, Frames}
 var EmoticonMap = map[string]struct {
 	X, Y, Frames int
 }{
-	"(smile)": {0, 0, 32},
-	"(sad)":   {40, 0, 32},
-	"(wink)":  {80, 0, 32},
-	"(laugh)": {120, 0, 32},
-	"(cool)":  {160, 0, 32},
-	"(cake)":  {200, 40, 1}, // Example static
+	"(smile)":     {0, 0, 32},
+	"(sad)":       {40, 0, 32},
+	"(wink)":      {80, 0, 32},
+	"(laugh)":     {120, 0, 32},
+	"(cool)":      {160, 0, 32},
+	"(surprised)": {200, 0, 32},
+	"(crying)":    {280, 0, 32},
+	"(sweat)":     {320, 0, 32},
+	"(kiss)":      {360, 0, 32},
+	"(cheeky)":    {400, 0, 32},
+	"(blush)":     {440, 0, 32},
+	"(sleepy)":    {480, 0, 32},
+	"(dull)":      {520, 0, 32},
+	"(inlove)":    {560, 0, 32},
+	"(egrin)":     {600, 0, 32},
+	"(party)":     {640, 0, 32},
+	"(beer)":      {680, 40, 1},
+	"(dance)":     {720, 0, 32},
+	"(rock)":      {760, 0, 32},
+	"(punch)":     {800, 0, 32},
+	"(flex)":      {840, 0, 32},
+	"(highfive)":  {880, 0, 32},
 }
 
-func NewAnimatedEmoji(shortcut string) *AnimatedEmoji {
+func NewAnimatedEmoji(shortcut string, slicer *AeroSlicer) *AnimatedEmoji {
 	coords, ok := EmoticonMap[shortcut]
-	if !ok {
+	if !ok || slicer == nil {
 		return nil
 	}
-	
-	f, err := os.Open("assets/ui_master_spritesheet.png")
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	img, _, _ := image.Decode(f)
 
-	// Tazher 7 emojis were often 20x20 or 40x40 clusters in a strip
-	// Let's assume 40x40 for high fidelity
-	frameSize := 40
 	e := &AnimatedEmoji{
-		frames: coords.Frames,
+		frames:   coords.Frames,
+		slicer:   slicer,
+		shortcut: shortcut,
+		imageObj: canvas.NewImageFromResource(slicer.Slice(shortcut+"_0", coords.X, coords.Y, 40, 40)),
 	}
+	e.imageObj.FillMode = canvas.ImageFillContain
 	e.ExtendBaseWidget(e)
 
-	// Animation loop
-	go func() {
-		ticker := time.NewTicker(80 * time.Millisecond)
-		for range ticker.C {
-			e.current = (e.current + 1) % e.frames
-			
-			// Crop current frame relative to starting coords
-			rect := image.Rect(coords.X, coords.Y + (e.current*frameSize), coords.X + frameSize, coords.Y + ((e.current+1)*frameSize))
-			if sub, ok := img.(interface {
-				SubImage(r image.Rectangle) image.Image
-			}); ok {
-				e.imageObj = canvas.NewImageFromImage(sub.SubImage(rect))
-				e.imageObj.FillMode = canvas.ImageFillContain
-				e.Refresh()
+	// Animation loop logic - only start if multiple frames
+	if e.frames > 1 {
+		go func() {
+			ticker := time.NewTicker(80 * time.Millisecond)
+			for range ticker.C {
+				e.current = (e.current + 1) % e.frames
+				e.imageObj.Resource = slicer.Slice(shortcut, coords.X, coords.Y+(e.current*40), 40, 40)
+				e.imageObj.Refresh()
 			}
-		}
-	}()
+		}()
+	}
 
 	return e
 }
@@ -86,11 +88,11 @@ func (r *emojiRenderer) Layout(size fyne.Size) {
 }
 
 func (r *emojiRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(40, 40)
+	return fyne.NewSize(32, 32)
 }
 
 func (r *emojiRenderer) Refresh() {
-	// Fyne automatically handles object refresh
+	r.emoji.imageObj.Refresh()
 }
 
 func (r *emojiRenderer) Objects() []fyne.CanvasObject {

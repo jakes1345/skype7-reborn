@@ -48,8 +48,20 @@ research_files/Offline Session/
 research_files/
 native_client/assets/original_resources/
 
-# Built binaries (never commit)
-nexus_server/nexus-server
-nexus_server/skype-nexus
-native_client/native_client
-native_client/skype
+# TAZHER build artifacts
+tazher-*
+*-linux
+*-windows
+*-darwin
+dist/
+
+# SQLite forensic artifacts
+*.db
+*.db-*
+nexus.db*
+
+# Built binaries
+nexus_server/tazher-nexus
+native_client/tazher-client
+tazher-native-linux
+tazher-nexus-linux

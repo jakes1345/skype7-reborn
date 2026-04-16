@@ -18,7 +18,7 @@ import (
 	"net/url"
 )
 
-// NexusMessage is the wire protocol for Private Skype
+// NexusMessage is the wire protocol for TAZHER™
 type NexusMessage struct {
 	Type      string   `json:"type"`
 	Sender    string   `json:"sender"`
@@ -835,7 +835,7 @@ func (s *NexusServer) landingHandler(w http.ResponseWriter, r *http.Request) {
 func (s *NexusServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	v := os.Getenv("TAZHER_LATEST_VERSION")
 	if v == "" {
-		v = "1.0.0-Tazher"
+		v = "1.0.0-TAZHER"
 	}
 	u := os.Getenv("TAZHER_UPDATE_URL")
 	if u == "" {
@@ -846,6 +846,19 @@ func (s *NexusServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"version": v,
 		"url":     u,
+	})
+}
+
+func (s *NexusServer) statsHandler(w http.ResponseWriter, r *http.Request) {
+	s.Mu.RLock()
+	count := len(s.Clients)
+	s.Mu.RUnlock()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active_nodes": count,
+		"timestamp":    time.Now().Unix(),
+		"status":       "online",
 	})
 }
 
@@ -881,6 +894,15 @@ func main() {
 	http.HandleFunc("/api/v1/profile/", server.profileHandler)
 	http.HandleFunc("/api/v1/avatars/", server.avatarHandler)
 	http.HandleFunc("/twiml/outbound", server.twimlHandler)
+	
+	fs := http.FileServer(http.Dir("public"))
+	http.Handle("/public/", http.StripPrefix("/public/", fs))
+	
+	http.HandleFunc("/api/v1/stats", server.statsHandler)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 	http.HandleFunc("/", server.landingHandler)
 	http.HandleFunc("/version", server.versionHandler)
 
@@ -890,7 +912,7 @@ func main() {
 	}
 
 	log.Printf("Tazher Nexus Server v1.0.0 starting on %s:%s...", bindAddr, port)
-	log.Printf("  WebSocket endpoint: ws://%s:%s/cable", bindAddr, port)
+	log.Printf("  WebSocket endpoint: ws://%s:%s/ws", bindAddr, port)
 	log.Printf("  Health check: http://%s:%s/health", bindAddr, port)
 
 	ticker := time.NewTicker(30 * time.Second)

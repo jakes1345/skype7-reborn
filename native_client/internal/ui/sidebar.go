@@ -3,6 +3,7 @@ package ui
 import (
 	"image/color"
 
+	"time"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -25,12 +26,14 @@ type SidebarProps struct {
 	AvatarPath     string
 	Slicer         *AeroSlicer
 	OnChatOpen     func(name string)
+	OnChatWindow   func(name string)
 	OnAddFriend    func()
 	OnNewGroup     func()
+	OnSearch       func(query string)
+	OnSettings     func()
 	OnProfile      func()
 	OnDialCall     func(number string)
 	OnStatusChange func(status string)
-	OnSettings      func()
 	RecentChats    []FriendInfo
 	CompactMode    bool
 }
@@ -77,9 +80,11 @@ func NewTazherSidebar(props SidebarProps) fyne.CanvasObject {
 	
 	actionButtons := container.NewGridWithColumns(3,
 		widget.NewButtonWithIcon("Add", theme.ContentAddIcon(), props.OnAddFriend),
-		widget.NewButtonWithIcon("Search", theme.SearchIcon(), func() {}),
+		widget.NewButtonWithIcon("Group", theme.ContentAddIcon(), props.OnNewGroup),
 		widget.NewButtonWithIcon("Settings", theme.SettingsIcon(), props.OnSettings),
 	)
+
+	search.OnSubmitted = props.OnSearch
 
 	// 3. Main List
 	list := widget.NewList(
@@ -108,8 +113,21 @@ func NewTazherSidebar(props SidebarProps) fyne.CanvasObject {
 			avatarWrap.Refresh()
 		},
 	)
+	var lastID widget.ListItemID = -1
+	var lastTime time.Time
+	
 	list.OnSelected = func(id widget.ListItemID) {
-		props.OnChatOpen(props.RecentChats[id].Username)
+		now := time.Now()
+		if id == lastID && now.Sub(lastTime) < 500*time.Millisecond {
+			if props.OnChatWindow != nil {
+				props.OnChatWindow(props.RecentChats[id].Username)
+			}
+		} else {
+			props.OnChatOpen(props.RecentChats[id].Username)
+		}
+		lastID = id
+		lastTime = now
+		list.Unselect(id) // Prevent persistent highlight blocking re-clicks
 	}
 
 	// 4. Tabs

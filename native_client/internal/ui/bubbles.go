@@ -113,7 +113,7 @@ var emoticonRegex = func() *regexp.Regexp {
 	return regexp.MustCompile("(" + strings.Join(keys, "|") + ")")
 }()
 
-func parseRichText(text string) []fyne.CanvasObject {
+func parseRichText(text string, slicer *AeroSlicer) []fyne.CanvasObject {
 	var objects []fyne.CanvasObject
 	pos := 0
 	matches := emoticonRegex.FindAllStringIndex(text, -1)
@@ -123,11 +123,11 @@ func parseRichText(text string) []fyne.CanvasObject {
 			objects = append(objects, widget.NewLabel(text[pos:start]))
 		}
 		tok := text[start:end]
-		if path, ok := emoticonMap[tok]; ok {
-			icon := canvas.NewImageFromFile("assets/" + path)
-			icon.SetMinSize(fyne.NewSize(19, 19))
-			icon.FillMode = canvas.ImageFillContain
-			objects = append(objects, icon)
+		
+		emoji := NewAnimatedEmoji(tok, slicer)
+		if emoji != nil {
+			emoji.imageObj.SetMinSize(fyne.NewSize(24, 24))
+			objects = append(objects, emoji)
 		} else {
 			objects = append(objects, widget.NewLabel(tok))
 		}
@@ -142,7 +142,7 @@ func parseRichText(text string) []fyne.CanvasObject {
 	return objects
 }
 
-func NewMessageBubble(author, text string, isMe bool) fyne.CanvasObject {
+func NewMessageBubble(author, text string, isMe bool, slicer *AeroSlicer) fyne.CanvasObject {
 	var bg fyne.CanvasObject
 	if isMe {
 		// Tazher Premium Blue Gradient
@@ -167,7 +167,7 @@ func NewMessageBubble(author, text string, isMe bool) fyne.CanvasObject {
 	}
 
 	nameLabel := widget.NewLabelWithStyle(author, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	bodyContent := container.NewHBox(parseRichText(text)...)
+	bodyContent := container.NewHBox(parseRichText(text, slicer)...)
 
 	content := container.NewVBox(nameLabel, bodyContent)
 	return container.NewStack(bg, container.NewPadded(content))

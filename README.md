@@ -1,45 +1,65 @@
-# TAZHER: Sovereign Communication Engine (Skype 7 Resurrection)
+# TAZHER™ 7.41 REBORN
+### Communication Sovereignty for a Post-Centralized World
 
-TAZHER is a high-performance, native-compiled reconstruction of the classic Skype 7.x experience. It is designed for **Sovereignty**, meaning it works regardless of whether central servers are online or offline.
+![TAZHER Hero](https://github.com/jakes1345/skype7-reborn/blob/master/assets/tazher_hero_mesh.png?raw=true)
 
-## 🚀 The TAZHER Promise
-- **Native Go Core**: No Electron, no WINE. Light on RAM, fast on CPU.
-*   **Unified Mesh**: Combines a fast Nexus Cloud with a resilient P2P DHT and LAN mDNS discovery. You are never "offline."
-*   **Obsidian Aesthetics**: Premium glassmorphism UI that respects the classic Aero layout.
-*   **Bit-Perfect Audio**: Authentic wav triggers for every event.
-
-## 🛠 Features
-| Feature | Status | Notes |
-| :--- | :--- | :--- |
-| **Obsidian UI** | ✅ Ready | Glassmorphism, Aero-inspired sidebar. |
-| **Unified Mesh** | ✅ Ready | Parallel dialer (Local + Cloud + P2P). |
-| **P2P Discovery** | ✅ Ready | DHT + LAN (mDNS) Hood Protocol. |
-| **Messaging** | ✅ Ready | Real-time chat with "Skype-Style" history. |
-| **Voice Calls** | 🚀 Ready | WebRTC with **Obsidian Call Overlay** and Pulse animations. |
-| **Security** | ✅ Ready | Email-backed Auth to prevent abuse. |
-| **Updates** | ✅ Ready | Global cloud-sync regardless of connection mode. |
-
-## 🚀 Getting Started
-
-TAZHER is a "Ship-it-all" package. 
-
-### 1. Requirements
-- **Go 1.25+** (Required for modern libp2p networking).
-
-### 2. Launch the Unified Mesh
-To experience the full Tazher network locally:
-```bash
-# Run the orchestrator
-./run_local_tazher.sh
-```
-This will launch your own **Local Nexus Node** and the **Tazher Client**, which will connect to both your local node and the global mesh simultaneously.
-
-## 🏗 Architecture
-TAZHER operates as a **Three-Layer Mesh**:
-1. **Layer 1: Nexus Cloud**: High-speed global relays for instant connectivity.
-2. **Layer 2: Local Nexus**: Personal/LAN nodes for private work centers.
-3. **Layer 3: P2P DHT**: The "Unstoppable" back-channel that finds peers even when all servers are seized.
+**TAZHER™** is a sovereign, production-grade forensic reconstruction of the classic 7.41 communication experience. It is not just a remake; it is an unstoppable communication engine designed for absolute privacy, resilience, and high-fidelity nostalgia.
 
 ---
-*TAZHER is an independent preservation and communication project. "Don't stop til you've had enough."*
 
+## ⚡ Key Pillars
+
+### 🛡️ The Sovereign Shield (E2EE)
+TAZHER utilizes **End-to-End Encryption (NaCl/Box)** as its native standard. Every message is cryptographically sealed at the source. The Nexus Relay remains **Zero-Knowledge**, never seeing anything but encrypted cipher-blobs.
+
+### 🧠 The Sentinel Internal AI
+Embedded within the core is the **TAZHER Sentinel**, an autonomous self-healing agent that monitors connection heartbeats across the mesh. If a relay is seized or the network fragments, the Sentinel autonomously repairs the link or fails over to the P2P DHT.
+
+### 🌐 The Three-Layer Mesh
+Communication is guaranteed through three redundant signaling layers:
+1.  **Nexus Cloud**: High-speed global relays (Fly.io enabled).
+2.  **Sovereign DHT**: Kademlia-based P2P peer discovery using `libp2p`.
+3.  **Local Mesh**: Zero-config mDNS discovery for LAN/Air-gapped communication.
+
+### 💎 Bit-Perfect Aero UI
+Experience the legendary 2014 aesthetic in its full glory. TAZHER delivers a premium, native-compiled (non-Electron) interface featuring:
+*   **Glassmorphism & Aero Effects**
+*   **Multi-Window Multitasking** (Detachable Chat Windows)
+*   **Master Forensic Spritesheets**
+*   **Iconic Animated Emoticons**
+
+---
+
+## 🚀 Quick Start (Development)
+
+### 1. Build the Nexus Relay
+```bash
+cd nexus_server
+go build -o tazher-nexus
+./tazher-nexus
+```
+
+### 2. Build the Native Client
+```bash
+cd native_client
+go build -o tazher-client
+./tazher-client
+```
+
+---
+
+## 🏗️ Technical Architecture
+
+*   **Logic**: Go 1.25.0
+*   **UI Framework**: Fyne v2 (Native Backend)
+*   **P2P Library**: LibP2P (Kademlia DHT + mDNS)
+*   **Encryption**: NaCl/SecretBox (XSalsa20 + Poly1305)
+*   **Database**: SQLite (Forensic 7.41 Schema Parity)
+
+---
+
+## 🤝 Contributing
+TAZHER is built by sovereign engineers. If you are a forensic developer or a UI architect, join the mesh.
+
+---
+*TAZHER is a bit-perfect reconstruction and is not affiliated with Microsoft Corporation.*

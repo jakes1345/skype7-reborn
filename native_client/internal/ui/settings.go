@@ -3,77 +3,70 @@ package ui
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/pion/mediadevices"
 )
 
 type SettingsProps struct {
-	DisplayName     string
-	Mood            string
-	PhoneNumber     string
-	IsPhoneVerified bool
-	OnSaveProfile   func(name, mood string)
-	OnLinkPhone     func(number string)
-	OnVerifyPhone   func(code string)
+	ServerAddr     string
+	SoundEnabled   bool
+	OnSave         func(server string, sound bool)
+	OnAudioChange  func(deviceName string)
 }
 
-func ShowTazherSettings(window fyne.Window, props SettingsProps) {
-	// Account Tab
-	nameEntry := widget.NewEntry()
-	nameEntry.SetText(props.DisplayName)
-	moodEntry := widget.NewEntry()
-	moodEntry.SetText(props.Mood)
-
-	accountTab := container.NewVBox(
-		widget.NewLabelWithStyle("Account Identity", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+func NewSettingsDialog(props SettingsProps) fyne.CanvasObject {
+	// 1. General Tab
+	serverEntry := widget.NewEntry()
+	serverEntry.SetText(props.ServerAddr)
+	soundCheck := widget.NewCheck("Enable Sound Effects", nil)
+	soundCheck.SetChecked(props.SoundEnabled)
+	
+	generalTab := container.NewVBox(
+		widget.NewLabelWithStyle("General Settings", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewForm(
-			widget.NewFormItem("Display Name", nameEntry),
-			widget.NewFormItem("Mood Message", moodEntry),
+			widget.NewFormItem("Nexus Server", serverEntry),
 		),
-		widget.NewButton("Save Profile", func() {
-			props.OnSaveProfile(nameEntry.Text, moodEntry.Text)
-		}),
+		soundCheck,
 	)
 
-	// Identity/Phone Tab
-	phoneEntry := widget.NewEntry()
-	phoneEntry.SetPlaceHolder("+1...")
-	phoneEntry.SetText(props.PhoneNumber)
-
-	status := "Not Linked"
-	if props.IsPhoneVerified {
-		status = "Verified ✅"
+	// 2. Audio & Video Tab
+	audioDevices := []string{"System Default"}
+	devices := mediadevices.EnumerateDevices()
+	for _, d := range devices {
+		if d.Kind == mediadevices.AudioInput {
+			audioDevices = append(audioDevices, d.DeviceID) // Using DeviceID as name for now
+		}
 	}
+	
+	audioSelect := widget.NewSelect(audioDevices, props.OnAudioChange)
+	audioSelect.SetSelected("System Default")
 
-	codeEntry := widget.NewEntry()
-	codeEntry.SetPlaceHolder("SMS code")
+	avTab := container.NewVBox(
+		widget.NewLabelWithStyle("Audio & Video Settings", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewForm(
+			widget.NewFormItem("Microphone", audioSelect),
+		),
+		widget.NewButtonWithIcon("Test Audio", theme.MediaPlayIcon(), func() {}),
+	)
 
-	identityTab := container.NewVBox(
-		widget.NewLabelWithStyle("Phone Linking (Caller ID)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabel("Current Status: "+status),
-		widget.NewForm(
-			widget.NewFormItem("Phone Number", phoneEntry),
-		),
-		widget.NewButton("Link Phone via SMS", func() {
-			props.OnLinkPhone(phoneEntry.Text)
-			dialog.ShowInformation("TAZHER", "Verification code sent to "+phoneEntry.Text, window)
-		}),
-		widget.NewSeparator(),
-		widget.NewForm(
-			widget.NewFormItem("Enter Code", codeEntry),
-		),
-		widget.NewButton("Verify Code", func() {
-			props.OnVerifyPhone(codeEntry.Text)
-		}),
+	// 3. Privacy Tab (P2P Mesh)
+	privacyTab := container.NewVBox(
+		widget.NewLabelWithStyle("Sovereign Mesh Privacy", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewCheck("Announce on Public DHT", func(bool) {}),
+		widget.NewCheck("Allow Local mDNS Discovery", func(bool) {}),
 	)
 
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Account", accountTab),
-		container.NewTabItem("Identity", identityTab),
-		container.NewTabItem("Mesh", widget.NewLabel("P2P Mesh Settings coming soon...")),
+		container.NewTabItemWithIcon("General", theme.SettingsIcon(), generalTab),
+		container.NewTabItemWithIcon("Audio & Video", theme.MediaVideoIcon(), avTab),
+		container.NewTabItemWithIcon("Privacy", theme.VisibilityIcon(), privacyTab),
 	)
+	
+	saveBtn := widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), func() {
+		props.OnSave(serverEntry.Text, soundCheck.Checked)
+	})
+	saveBtn.Importance = widget.HighImportance
 
-	d := dialog.NewCustom("Tazher Settings", "Close", tabs, window)
-	d.Resize(fyne.NewSize(450, 400))
-	d.Show()
+	return container.NewBorder(nil, container.NewPadded(saveBtn), nil, nil, tabs)
 }
