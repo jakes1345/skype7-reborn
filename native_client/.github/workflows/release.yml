@@ -1,7 +1,8 @@
-name: Native Build & Release
+name: TAZHER Build & Release
 
 on:
   push:
+    branches: [ master ]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -11,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [linux, windows, darwin]
+        target: [linux, windows] # Temporarily disable darwin until CGO sorted
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,26 +20,27 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25.x'
+          cache: true
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev gcc-mingw-w64
 
       - name: Build Binary
+        working-directory: native_client
         run: |
           go mod download
           if [ "${{ matrix.target }}" == "windows" ]; then
-            GOOS=windows GOARCH=amd64 go build -o skype-classic-windows.exe .
-          elif [ "${{ matrix.target }}" == "darwin" ]; then
-            GOOS=darwin GOARCH=amd64 go build -o skype-classic-mac .
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -o ../tazher-windows.exe .
           else
-            GOOS=linux GOARCH=amd64 go build -o skype-classic-linux .
+            GOOS=linux GOARCH=amd64 go build -o ../tazher-linux .
           fi
+        # Note: Windows CGO build requires mingw-w64 but let's try standard build first if audio allows
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: skype-classic-${{ matrix.target }}
-          path: skype-classic-*
+          name: tazher-${{ matrix.target }}
+          path: tazher-*
