@@ -28,6 +28,13 @@ Experience the legendary 2014 aesthetic in its full glory. TAZHER delivers a pre
 *   **Master Forensic Spritesheets**
 *   **Iconic Animated Emoticons**
 
+### 📹 Sovereign Media (CoTURN)
+For unstoppable video calling across restrictive firewalls:
+1.  **Install CoTURN**: `sudo apt install coturn`
+2.  **Configure**: `sudo cp scripts/tazher_turnserver.conf /etc/turnserver.conf`
+3.  **Deploy**: `sudo systemctl restart coturn`
+4.  **Connect**: Set `TAZHER_TURN_SECRET` and `TAZHER_TURN_URL` on your Nexus server.
+
 ---
 
 ## 🚀 Quick Start (Development)

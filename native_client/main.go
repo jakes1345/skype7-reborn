@@ -98,6 +98,7 @@ type NexusMessage struct {
 	Token     string   `json:"token,omitempty"`
 	Endpoint  string   `json:"endpoint,omitempty"`
 	PublicKey []byte   `json:"public_key,omitempty"` // For E2EE key exchange
+	TurnConfig *chat.TurnConfig `json:"turn_config,omitempty"`
 }
 
 // TazherApp holds all application state
@@ -604,6 +605,10 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 			log.Println("Authenticated with Nexus")
 			s.playSound("Login.wav")
 			s.Username = msg.Sender
+			if msg.TurnConfig != nil {
+				log.Println("[Sovereign] Captured Dynamic Media Token.")
+				s.Calls.SetICEServers(msg.TurnConfig)
+			}
 			s.authChan <- true
 		} else {
 			log.Println("Auth failed:", msg.Error)

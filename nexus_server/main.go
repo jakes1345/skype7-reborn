@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -36,6 +39,13 @@ type NexusMessage struct {
 	ConvoID     string   `json:"convo_id,omitempty"`
 	ConvoName string   `json:"convo_name,omitempty"`
 	Members   []string `json:"members,omitempty"`
+	TurnConfig  *TurnConfig `json:"turn_config,omitempty"`
+}
+
+type TurnConfig struct {
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type Client struct {
@@ -54,7 +64,33 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// ---------- Database Setup ----------
+// ---------- Sovereign Media Configuration ----------
+
+var (
+	TurnSecret = os.Getenv("TAZHER_TURN_SECRET") // Shared secret with CoTURN
+	TurnURL    = os.Getenv("TAZHER_TURN_URL")    // e.g. "turn:turn.tazher.com:3478"
+)
+
+func (s *NexusServer) generateMediaToken(username string) *TurnConfig {
+	if TurnSecret == "" || TurnURL == "" {
+		return nil
+	}
+	
+	// CoTURN Dynamic Credential Algorithm (timestamp:username)
+	timestamp := time.Now().Add(24 * time.Hour).Unix()
+	user := fmt.Sprintf("%d:%s", timestamp, username)
+	
+	// Pass = HMAC-SHA1(secret, user)
+	mac := hmac.New(sha1.New, []byte(TurnSecret))
+	mac.Write([]byte(user))
+	password := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	return &TurnConfig{
+		URL:      TurnURL,
+		Username: user,
+		Password: password,
+	}
+}
 
 func (s *NexusServer) initDB() {
 	tables := []string{
@@ -532,7 +568,12 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			s.Mu.Unlock()
 			log.Printf("User %s authenticated", username)
 
-			ws.WriteJSON(NexusMessage{Type: "auth_result", Status: "ok", Sender: username})
+			ws.WriteJSON(NexusMessage{
+				Type:       "auth_result",
+				Status:     "ok",
+				Sender:     username,
+				TurnConfig: s.generateMediaToken(username),
+			})
 
 			// Broadcast online presence to friends
 			s.broadcastPresence(username, "Online")

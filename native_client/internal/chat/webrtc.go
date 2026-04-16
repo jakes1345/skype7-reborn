@@ -14,18 +14,27 @@ import (
 	"github.com/pion/webrtc/v3/pkg/media"
 )
 
-// iceServers returns the ICE server list used for every peer connection.
-// Defaults: Google STUN + Open Relay Project free TURN (works behind
-// symmetric NATs). Override any of the three via env vars for self-hosting:
-//
-//	SHADOW_TURN_URL   comma-separated list (e.g. "turn:turn.example.com:3478")
-//	SHADOW_TURN_USER  username
-//	SHADOW_TURN_PASS  credential
-//
-// If SKYPE_TURN_URL is set the default TURN servers are replaced, not merged.
-func iceServers() []webrtc.ICEServer {
+type TurnConfig struct {
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// iceServers returns the ICE server list. It prioritizes the dynamic TurnConfig
+// provided by the Nexus server, falling back to public defaults.
+func iceServers(dynamic *TurnConfig) []webrtc.ICEServer {
 	servers := []webrtc.ICEServer{
 		{URLs: []string{"stun:stun.l.google.com:19302"}},
+	}
+
+	if dynamic != nil && dynamic.URL != "" {
+		servers = append(servers, webrtc.ICEServer{
+			URLs:           []string{dynamic.URL},
+			Username:       dynamic.Username,
+			Credential:     dynamic.Password,
+			CredentialType: webrtc.ICECredentialTypePassword,
+		})
+		return servers
 	}
 
 	if custom := os.Getenv("SHADOW_TURN_URL"); custom != "" {
@@ -72,6 +81,8 @@ type CallManager struct {
 	rxState map[string]*fileRx
 	pumps   map[string]*audioPump
 	muted   map[string]bool
+	
+	ICEServers []webrtc.ICEServer
 }
 
 // SetMuted controls whether the local mic is relayed to the peer.
@@ -124,7 +135,12 @@ func NewCallManager() *CallManager {
 		rxState:      make(map[string]*fileRx),
 		pumps:        make(map[string]*audioPump),
 		API:          api,
+		ICEServers:   iceServers(nil),
 	}
+}
+
+func (cm *CallManager) SetICEServers(dynamic *TurnConfig) {
+	cm.ICEServers = iceServers(dynamic)
 }
 
 // addAudioTrack attaches a local PCMU audio track to the PC.
@@ -178,6 +194,11 @@ func (cm *CallManager) CreateOffer(peerName string, config webrtc.Configuration,
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 
+	// Merge our pre-configured ICEServers into the passed config if none are present
+	if len(config.ICEServers) == 0 {
+		config.ICEServers = cm.ICEServers
+	}
+
 	pc, err := cm.API.NewPeerConnection(config)
 	if err != nil {
 		return nil, "", err
@@ -225,6 +246,10 @@ func (cm *CallManager) CreateOffer(peerName string, config webrtc.Configuration,
 func (cm *CallManager) HandleOffer(peerName string, config webrtc.Configuration, offerSDP string, onICECandidate func(*webrtc.ICECandidate)) (*webrtc.PeerConnection, string, error) {
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
+
+	if len(config.ICEServers) == 0 {
+		config.ICEServers = cm.ICEServers
+	}
 
 	pc, err := cm.API.NewPeerConnection(config)
 	if err != nil {
