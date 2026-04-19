@@ -1562,6 +1562,9 @@ func (s *NexusServer) fileDownloadHandler(w http.ResponseWriter, r *http.Request
 	} else if strings.HasSuffix(path, ".exe") {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"Phaze.exe\"")
+	} else if strings.HasSuffix(path, ".linux") {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment; filename=\"Phaze.linux\"")
 	}
 	
 	http.ServeFile(w, r, "public/downloads/"+path)

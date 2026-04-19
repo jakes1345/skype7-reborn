@@ -22,6 +22,12 @@ fyne-cross/
 native_client/native_client
 native_client/Phaze.exe
 native_client/Phaze.apk
+native_client/Phaze.linux
+native_client/*.keystore
+native_client/*.jks
+nexus_server/public/downloads/Phaze.apk
+nexus_server/public/downloads/Phaze.exe
+nexus_server/public/downloads/Phaze.linux
 native_client/phaze
 native_client/tazher-native
 native_client/private-skype
