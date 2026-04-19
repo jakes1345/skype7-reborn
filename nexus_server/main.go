@@ -2,22 +2,28 @@ package main
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/time/rate"
 	_ "modernc.org/sqlite"
@@ -111,6 +117,11 @@ type NexusMessage struct {
 	ConvoName   string      `json:"convo_name,omitempty"`
 	Members     []string    `json:"members,omitempty"`
 	TurnConfig  *TurnConfig `json:"turn_config,omitempty"`
+	TOTPCode    string      `json:"totp_code,omitempty"`
+	TOTPURI     string      `json:"totp_uri,omitempty"`
+	QRToken     string      `json:"qr_token,omitempty"`
+	QRData      string      `json:"qr_data,omitempty"`
+	DeviceInfo  string      `json:"device_info,omitempty"`
 }
 
 type TurnConfig struct {
@@ -230,10 +241,44 @@ func (s *NexusServer) initDB() {
 			body TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS session_tokens (
+			token TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			device_info TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME NOT NULL,
+			revoked INTEGER DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS password_resets (
+			token TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME NOT NULL,
+			used INTEGER DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS qr_login_tokens (
+			token TEXT PRIMARY KEY,
+			username TEXT DEFAULT '',
+			session_token TEXT DEFAULT '',
+			device_info TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME NOT NULL,
+			approved INTEGER DEFAULT 0
+		)`,
 	}
 	for _, q := range tables {
 		if _, err := s.DB.Exec(q); err != nil {
 			log.Fatalf("DB init error: %v", err)
+		}
+	}
+	// Idempotent column migrations for existing deployments.
+	migrations := []string{
+		`ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0`,
+	}
+	for _, q := range migrations {
+		if _, err := s.DB.Exec(q); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			log.Printf("DB migration skipped (%v)", err)
 		}
 	}
 }
@@ -241,6 +286,12 @@ func (s *NexusServer) initDB() {
 // ---------- Account Management (bcrypt) ----------
 
 func (s *NexusServer) registerUser(username, email, mood, password string) (string, error) {
+	if !validUsername(username) {
+		return "", errBadUsername
+	}
+	if !validEmail(email) {
+		return "", errBadEmail
+	}
 	if len(password) < 8 {
 		return "", errShortPassword
 	}
@@ -249,11 +300,219 @@ func (s *NexusServer) registerUser(username, email, mood, password string) (stri
 		return "", err
 	}
 
-	code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	code, err := randDigits(6)
+	if err != nil {
+		return "", err
+	}
 
 	_, err = s.DB.Exec("INSERT INTO users (username, email, mood, password_hash, salt, verification_code) VALUES (?, ?, ?, ?, '', ?)",
 		username, email, mood, string(hash), code)
 	return code, err
+}
+
+// ---------- Auth MVP helpers (OTP, email, username, session, TOTP, reset) ----------
+
+var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]{3,32}$`)
+
+func validUsername(u string) bool { return usernameRegex.MatchString(u) }
+
+func validEmail(e string) bool {
+	if e == "" {
+		return false
+	}
+	_, err := mail.ParseAddress(e)
+	return err == nil
+}
+
+func randHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func randDigits(n int) (string, error) {
+	out := make([]byte, n)
+	for i := 0; i < n; i++ {
+		v, err := rand.Int(rand.Reader, big.NewInt(10))
+		if err != nil {
+			return "", err
+		}
+		out[i] = byte('0' + v.Int64())
+	}
+	return string(out), nil
+}
+
+func (s *NexusServer) issueSessionToken(username, device string) (string, error) {
+	tok, err := randHex(32)
+	if err != nil {
+		return "", err
+	}
+	expires := time.Now().Add(30 * 24 * time.Hour)
+	_, err = s.DB.Exec(
+		"INSERT INTO session_tokens (token, username, device_info, expires_at) VALUES (?, ?, ?, ?)",
+		tok, username, device, expires,
+	)
+	return tok, err
+}
+
+func (s *NexusServer) sessionUsername(token string) string {
+	if token == "" {
+		return ""
+	}
+	var u string
+	var expires time.Time
+	var revoked int
+	err := s.DB.QueryRow(
+		"SELECT username, expires_at, revoked FROM session_tokens WHERE token = ?",
+		token,
+	).Scan(&u, &expires, &revoked)
+	if err != nil || revoked != 0 || time.Now().After(expires) {
+		return ""
+	}
+	return u
+}
+
+func (s *NexusServer) revokeSession(token string) {
+	s.DB.Exec("UPDATE session_tokens SET revoked = 1 WHERE token = ?", token)
+}
+
+func (s *NexusServer) totpStatus(username string) (secret string, enabled bool) {
+	var e int
+	s.DB.QueryRow("SELECT totp_secret, totp_enabled FROM users WHERE username = ?", username).Scan(&secret, &e)
+	return secret, e == 1
+}
+
+func (s *NexusServer) generateTOTPURI(username string) (uri, secret string, err error) {
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "Phaze",
+		AccountName: username,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return key.URL(), key.Secret(), nil
+}
+
+func (s *NexusServer) enableTOTP(username, secret, code string) bool {
+	if !totp.Validate(code, secret) {
+		return false
+	}
+	_, err := s.DB.Exec("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE username = ?", secret, username)
+	return err == nil
+}
+
+func (s *NexusServer) disableTOTP(username string) {
+	s.DB.Exec("UPDATE users SET totp_secret = '', totp_enabled = 0 WHERE username = ?", username)
+}
+
+func (s *NexusServer) verifyTOTP(username, code string) bool {
+	secret, enabled := s.totpStatus(username)
+	if !enabled || secret == "" {
+		return true
+	}
+	return totp.Validate(code, secret)
+}
+
+func (s *NexusServer) createPasswordReset(email string) (string, string, error) {
+	var username string
+	err := s.DB.QueryRow("SELECT username FROM users WHERE email = ?", email).Scan(&username)
+	if err != nil {
+		return "", "", err
+	}
+	tok, err := randHex(24)
+	if err != nil {
+		return "", "", err
+	}
+	expires := time.Now().Add(1 * time.Hour)
+	_, err = s.DB.Exec(
+		"INSERT INTO password_resets (token, username, expires_at) VALUES (?, ?, ?)",
+		tok, username, expires,
+	)
+	return tok, username, err
+}
+
+func (s *NexusServer) consumePasswordReset(token, newPassword string) error {
+	if len(newPassword) < 8 {
+		return errShortPassword
+	}
+	var username string
+	var expires time.Time
+	var used int
+	err := s.DB.QueryRow(
+		"SELECT username, expires_at, used FROM password_resets WHERE token = ?",
+		token,
+	).Scan(&username, &expires, &used)
+	if err != nil {
+		return err
+	}
+	if used != 0 || time.Now().After(expires) {
+		return errResetInvalid
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE users SET password_hash = ? WHERE username = ?", string(hash), username); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec("UPDATE password_resets SET used = 1 WHERE token = ?", token); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *NexusServer) createQRLogin() (string, error) {
+	tok, err := randHex(16)
+	if err != nil {
+		return "", err
+	}
+	expires := time.Now().Add(5 * time.Minute)
+	_, err = s.DB.Exec(
+		"INSERT INTO qr_login_tokens (token, expires_at) VALUES (?, ?)",
+		tok, expires,
+	)
+	return tok, err
+}
+
+func (s *NexusServer) approveQRLogin(token, username, device string) error {
+	sess, err := s.issueSessionToken(username, device)
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec(
+		"UPDATE qr_login_tokens SET username = ?, session_token = ?, device_info = ?, approved = 1 WHERE token = ? AND approved = 0 AND expires_at > CURRENT_TIMESTAMP",
+		username, sess, device, token,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errQRInvalid
+	}
+	return nil
+}
+
+func (s *NexusServer) checkQRLogin(token string) (string, string, bool) {
+	var username, sess string
+	var approved int
+	var expires time.Time
+	err := s.DB.QueryRow(
+		"SELECT username, session_token, approved, expires_at FROM qr_login_tokens WHERE token = ?",
+		token,
+	).Scan(&username, &sess, &approved, &expires)
+	if err != nil || time.Now().After(expires) {
+		return "", "", false
+	}
+	return username, sess, approved == 1
 }
 
 func (s *NexusServer) verifyUser(username, code string) bool {
@@ -305,11 +564,15 @@ func (s *NexusServer) authenticateUser(username, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
-var errShortPassword = &passErr{}
+var errShortPassword = &strErr{"password must be at least 8 characters"}
+var errBadUsername = &strErr{"invalid username (3-32 chars, a-z A-Z 0-9 . _ -)"}
+var errBadEmail = &strErr{"invalid email address"}
+var errResetInvalid = &strErr{"password reset token invalid or expired"}
+var errQRInvalid = &strErr{"qr login token invalid or expired"}
 
-type passErr struct{}
+type strErr struct{ msg string }
 
-func (*passErr) Error() string { return "password must be at least 8 characters" }
+func (e *strErr) Error() string { return e.msg }
 
 // ---------- Friend Management ----------
 
@@ -708,9 +971,13 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				ws.WriteJSON(NexusMessage{Type: "auth_result", Error: "Invalid username or password"})
 				continue
 			}
+			if !s.verifyTOTP(msg.Sender, msg.TOTPCode) {
+				ws.WriteJSON(NexusMessage{Type: "auth_result", Error: "2FA code required or invalid", Status: "totp_required"})
+				continue
+			}
 			username = msg.Sender
+			sessTok, _ := s.issueSessionToken(username, msg.DeviceInfo)
 			s.Mu.Lock()
-			// Kick existing session if any
 			if existing, ok := s.Clients[username]; ok {
 				existing.Conn.WriteJSON(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
 				existing.Conn.Close()
@@ -723,6 +990,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				Type:       "auth_result",
 				Status:     "ok",
 				Sender:     username,
+				QRToken:    sessTok,
 				TurnConfig: s.generateMediaToken(username),
 			})
 
@@ -755,6 +1023,170 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				s.Mu.RUnlock()
 				ws.WriteJSON(NexusMessage{Type: "friend_status", Sender: f, Status: status})
 			}
+
+		case "session_auth":
+			u := s.sessionUsername(msg.QRToken)
+			if u == "" {
+				ws.WriteJSON(NexusMessage{Type: "auth_result", Error: "Session expired, please log in"})
+				continue
+			}
+			username = u
+			s.Mu.Lock()
+			if existing, ok := s.Clients[username]; ok {
+				existing.Conn.WriteJSON(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
+				existing.Conn.Close()
+			}
+			s.Clients[username] = &Client{Conn: ws, Username: username, Status: "Online"}
+			s.Mu.Unlock()
+			log.Printf("User %s resumed via session token", username)
+			ws.WriteJSON(NexusMessage{
+				Type:       "auth_result",
+				Status:     "ok",
+				Sender:     username,
+				QRToken:    msg.QRToken,
+				TurnConfig: s.generateMediaToken(username),
+			})
+			s.broadcastPresence(username, "Online")
+			s.deliverOfflineMessages(username)
+
+		case "revoke_session":
+			if username == "" || msg.QRToken == "" {
+				continue
+			}
+			s.revokeSession(msg.QRToken)
+			ws.WriteJSON(NexusMessage{Type: "session_revoked", Status: "ok"})
+
+		case "resend_verification":
+			var email string
+			err := s.DB.QueryRow("SELECT email FROM users WHERE username = ?", msg.Sender).Scan(&email)
+			if err != nil || email == "" {
+				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "User not found"})
+				continue
+			}
+			code, err := randDigits(6)
+			if err != nil {
+				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "Internal error"})
+				continue
+			}
+			if _, err := s.DB.Exec("UPDATE users SET verification_code = ? WHERE username = ?", code, msg.Sender); err != nil {
+				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "Database error"})
+				continue
+			}
+			go s.sendEmail(email, "Your Phaze activation code",
+				"<h1>New code</h1><p>Your activation code is: <b>"+code+"</b></p>")
+			ws.WriteJSON(NexusMessage{Type: "register_result", Status: "code_resent"})
+
+		case "enable_totp":
+			if username == "" {
+				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Not authenticated"})
+				continue
+			}
+			uri, secret, err := s.generateTOTPURI(username)
+			if err != nil {
+				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Could not generate secret"})
+				continue
+			}
+			// Stash secret pending verification; set enabled=0 so auth still allows login until confirmed.
+			s.DB.Exec("UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE username = ?", secret, username)
+			ws.WriteJSON(NexusMessage{Type: "totp_result", Status: "pending_confirm", TOTPURI: uri})
+
+		case "confirm_totp":
+			if username == "" {
+				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Not authenticated"})
+				continue
+			}
+			secret, _ := s.totpStatus(username)
+			if secret == "" {
+				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "No pending TOTP enrollment"})
+				continue
+			}
+			if !s.enableTOTP(username, secret, msg.TOTPCode) {
+				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Invalid code"})
+				continue
+			}
+			ws.WriteJSON(NexusMessage{Type: "totp_result", Status: "enabled"})
+
+		case "disable_totp":
+			if username == "" {
+				continue
+			}
+			if !s.authenticateUser(username, msg.Body) {
+				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Password required"})
+				continue
+			}
+			s.disableTOTP(username)
+			ws.WriteJSON(NexusMessage{Type: "totp_result", Status: "disabled"})
+
+		case "forgot_password":
+			// Accept email in msg.Email; always ack "sent" to avoid user enumeration.
+			go func(addr string) {
+				tok, user, err := s.createPasswordReset(addr)
+				if err != nil {
+					log.Printf("[reset] no user for %s", addr)
+					return
+				}
+				link := "https://phazechat.world/reset?token=" + tok
+				_ = s.sendEmail(addr, "Reset your Phaze password",
+					"<h1>Reset password</h1><p>Hello "+user+",</p><p>Click to reset (valid 1 hour): <a href=\""+link+"\">"+link+"</a></p>")
+			}(msg.Email)
+			ws.WriteJSON(NexusMessage{Type: "forgot_password_result", Status: "sent"})
+
+		case "reset_password":
+			if err := s.consumePasswordReset(msg.QRToken, msg.Body); err != nil {
+				ws.WriteJSON(NexusMessage{Type: "reset_password_result", Error: err.Error()})
+				continue
+			}
+			ws.WriteJSON(NexusMessage{Type: "reset_password_result", Status: "ok"})
+
+		case "qr_login_create":
+			tok, err := s.createQRLogin()
+			if err != nil {
+				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Error: "Could not create QR token"})
+				continue
+			}
+			ws.WriteJSON(NexusMessage{
+				Type:    "qr_login_result",
+				Status:  "pending",
+				QRToken: tok,
+				QRData:  "phaze://login?token=" + tok,
+			})
+
+		case "qr_login_approve":
+			if username == "" {
+				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Error: "Not authenticated"})
+				continue
+			}
+			if err := s.approveQRLogin(msg.QRToken, username, msg.DeviceInfo); err != nil {
+				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Error: err.Error()})
+				continue
+			}
+			ws.WriteJSON(NexusMessage{Type: "qr_login_result", Status: "approved"})
+
+		case "qr_login_check":
+			u, sess, approved := s.checkQRLogin(msg.QRToken)
+			if !approved {
+				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Status: "pending", QRToken: msg.QRToken})
+				continue
+			}
+			// Promote this socket onto the approved session.
+			username = u
+			s.Mu.Lock()
+			if existing, ok := s.Clients[username]; ok {
+				existing.Conn.WriteJSON(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
+				existing.Conn.Close()
+			}
+			s.Clients[username] = &Client{Conn: ws, Username: username, Status: "Online"}
+			s.Mu.Unlock()
+			log.Printf("User %s logged in via QR", username)
+			ws.WriteJSON(NexusMessage{
+				Type:       "auth_result",
+				Status:     "ok",
+				Sender:     username,
+				QRToken:    sess,
+				TurnConfig: s.generateMediaToken(username),
+			})
+			s.broadcastPresence(username, "Online")
+			s.deliverOfflineMessages(username)
 
 		case "msg":
 			if username == "" {
@@ -1163,6 +1595,29 @@ func (s *NexusServer) legalHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "templates/legal.html")
 }
 
+func (s *NexusServer) resetHandler(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		token = r.FormValue("token")
+		pw := r.FormValue("password")
+		if err := s.consumePasswordReset(token, pw); err != nil {
+			fmt.Fprintf(w, `<!doctype html><meta charset=utf-8><title>Reset failed</title><body style="font-family:system-ui;max-width:520px;margin:80px auto;padding:20px"><h1>Reset failed</h1><p>%s</p><p><a href="/">Back to Phaze</a></p>`, err.Error())
+			return
+		}
+		fmt.Fprint(w, `<!doctype html><meta charset=utf-8><title>Password reset</title><body style="font-family:system-ui;max-width:520px;margin:80px auto;padding:20px"><h1>Password updated</h1><p>You can now log in with your new password.</p><p><a href="/">Back to Phaze</a></p>`)
+		return
+	}
+	if token == "" {
+		http.Error(w, "missing token", http.StatusBadRequest)
+		return
+	}
+	fmt.Fprintf(w, `<!doctype html><html><head><meta charset=utf-8><title>Reset Phaze password</title><style>body{font-family:system-ui;max-width:520px;margin:80px auto;padding:20px}input{width:100%%;padding:10px;margin:8px 0;font-size:1rem}button{background:#00AFF0;color:#fff;border:0;padding:12px 24px;border-radius:6px;font-size:1rem;cursor:pointer}</style></head><body><h1>Reset your Phaze password</h1><form method="POST"><input type="hidden" name="token" value="%s"><label>New password (min. 8 chars)<input type="password" name="password" minlength="8" required></label><button type="submit">Set new password</button></form></body></html>`, token)
+}
+
 func (s *NexusServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	v := os.Getenv("Phaze_LATEST_VERSION")
 	if v == "" {
@@ -1246,6 +1701,7 @@ func main() {
 	http.HandleFunc("/privacy", server.privacyHandler)
 	http.HandleFunc("/terms", server.termsHandler)
 	http.HandleFunc("/legal", server.legalHandler)
+	http.HandleFunc("/reset", server.resetHandler)
 	http.HandleFunc("/version", server.versionHandler)
 	http.HandleFunc("/health", healthHandler)
 
