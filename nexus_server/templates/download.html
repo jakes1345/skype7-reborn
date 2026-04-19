@@ -61,6 +61,13 @@
             border-radius: 6px; font-weight: 600; font-size: 0.95rem; transition: all 0.2s;
         }
         .platform-btn:hover { background: var(--skype-dark); transform: translateY(-1px); }
+        .platform-btn.disabled { background: #bbb; pointer-events: none; cursor: not-allowed; }
+        .platform-card.soon { opacity: 0.7; }
+        .platform-card.soon::after {
+            content: 'Coming Soon'; display: inline-block; margin-top: 10px;
+            background: #ffd166; color: #7a5a00; padding: 3px 12px; border-radius: 20px;
+            font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
+        }
 
         .req-section { padding: 40px 0 80px; }
         .req-section h3 { text-align: center; font-size: 1.2rem; margin-bottom: 30px; color: var(--text-dark); }
@@ -124,17 +131,17 @@
                     <div class="platform-detail">Windows 10+ · x64 · <strong>Surface Pro</strong></div>
                     <a href="/downloads/Phaze.exe" class="platform-btn">Download .exe</a>
                 </div>
-                <div class="platform-card" id="card-linux">
+                <div class="platform-card soon" id="card-linux">
                     <span class="platform-icon">🐧</span>
                     <div class="platform-name">Linux</div>
-                    <div class="platform-detail">Kali, Fedora, RHEL, Arch, Debian, Ubuntu · x64</div>
-                    <a href="/downloads/Phaze.linux" class="platform-btn">Download Binary</a>
+                    <div class="platform-detail">Ubuntu, Fedora, Arch, Debian · x64</div>
+                    <span class="platform-btn disabled">Build in progress</span>
                 </div>
-                <div class="platform-card" id="card-macos">
+                <div class="platform-card soon" id="card-macos">
                     <span class="platform-icon">🍎</span>
                     <div class="platform-name">macOS</div>
                     <div class="platform-detail">Ventura+ · Intel & Apple Silicon</div>
-                    <a href="/downloads/Phaze.dmg" class="platform-btn">Download .dmg</a>
+                    <span class="platform-btn disabled">Build in progress</span>
                 </div>
                 <div class="platform-card" id="card-android">
                     <span class="platform-icon">📱</span>

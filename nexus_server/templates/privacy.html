@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — Phaze</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --skype-blue: #00AFF0; --skype-dark: #0078D4; --text-dark: #333; --text-light: #666; --bg-light: #f5f5f5; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Inter', system-ui, sans-serif; color: var(--text-dark); background: #fff; line-height: 1.65; }
+        a { color: var(--skype-blue); text-decoration: none; }
+        .container { max-width: 820px; margin: 0 auto; padding: 0 20px; }
+
+        .navbar { background: #fff; border-bottom: 1px solid #e8e8e8; position: sticky; top: 0; z-index: 1000; }
+        .navbar .container { max-width: 1140px; display: flex; align-items: center; justify-content: space-between; height: 60px; }
+        .nav-brand { display: flex; align-items: center; gap: 8px; font-size: 1.4rem; font-weight: 700; color: var(--skype-blue); }
+        .nav-links { display: flex; list-style: none; height: 100%; }
+        .nav-links a { display: flex; align-items: center; height: 100%; padding: 0 18px; color: var(--text-dark); font-size: 0.9rem; border-bottom: 3px solid transparent; }
+        .nav-links a:hover, .nav-links a.active { color: var(--skype-blue); border-bottom-color: var(--skype-blue); }
+        .nav-get-btn { background: var(--skype-blue); color: #fff !important; padding: 8px 24px; border-radius: 4px; font-weight: 600; }
+
+        .legal-hero { padding: 60px 0 40px; background: var(--bg-light); border-bottom: 1px solid #eee; text-align: center; }
+        .legal-hero h1 { font-size: 2.4rem; font-weight: 300; margin-bottom: 8px; }
+        .legal-hero h1 strong { font-weight: 700; color: var(--skype-blue); }
+        .legal-hero .updated { color: var(--text-light); font-size: 0.9rem; }
+
+        .legal-body { padding: 60px 0 80px; }
+        .legal-body h2 { font-size: 1.4rem; margin: 40px 0 14px; color: var(--text-dark); }
+        .legal-body h2:first-child { margin-top: 0; }
+        .legal-body p, .legal-body li { color: var(--text-dark); margin-bottom: 14px; font-size: 1rem; }
+        .legal-body ul { padding-left: 24px; margin-bottom: 18px; }
+        .legal-body code { background: var(--bg-light); padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+        .callout { background: var(--bg-light); border-left: 4px solid var(--skype-blue); padding: 16px 20px; border-radius: 4px; margin: 20px 0; }
+
+        .footer { background: #1a1a1a; color: #999; padding: 30px 0; text-align: center; font-size: 0.8rem; }
+        .footer a { color: #bbb; }
+        @media (max-width: 768px) { .nav-links { display: none; } .legal-hero h1 { font-size: 1.8rem; } }
+    </style>
+</head>
+<body>
+    <nav class="navbar"><div class="container">
+        <a href="/" class="nav-brand"><svg viewBox="0 0 32 32" fill="none" width="32" height="32"><circle cx="16" cy="16" r="15" fill="#00AFF0"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="16" font-weight="700" font-family="sans-serif">P</text></svg> Phaze</a>
+        <ul class="nav-links"><li><a href="/">Home</a></li><li><a href="/features">Features</a></li><li><a href="/download">Downloads</a></li><li><a href="/rates">Rates</a></li><li><a href="/about">About</a></li></ul>
+        <a href="/download" class="nav-get-btn">Get Phaze</a>
+    </div></nav>
+
+    <section class="legal-hero"><div class="container">
+        <h1><strong>Privacy</strong> Policy</h1>
+        <div class="updated">Last updated: 2026-04-19</div>
+    </div></section>
+
+    <section class="legal-body"><div class="container">
+        <div class="callout">
+            <strong>Short version:</strong> Your messages and calls are end-to-end encrypted. We can't read them. We run a relay, not a surveillance network.
+        </div>
+
+        <h2>1. What we collect</h2>
+        <p>When you register an account, we store:</p>
+        <ul>
+            <li>Your <strong>username</strong>, a <strong>bcrypt hash</strong> of your password, and your <strong>email address</strong> (used for verification and password reset).</li>
+            <li>Optionally, your <strong>display name</strong>, <strong>mood</strong> text, and <strong>phone number</strong> if you link one.</li>
+            <li>Your <strong>friends list</strong> and <strong>block list</strong> so we can route messages.</li>
+            <li>Connection metadata (IP address) transiently, for rate-limiting. We do not persist IP logs.</li>
+        </ul>
+
+        <h2>2. What we do not collect</h2>
+        <ul>
+            <li>The contents of your messages, calls, or file transfers — they are end-to-end encrypted with <code>NaCl SecretBox</code> (XSalsa20 + Poly1305) before they leave your device. The Phaze Nexus only sees encrypted blobs.</li>
+            <li>Your contacts' phone numbers, address-book, or device identifiers.</li>
+            <li>Browsing history, telemetry, or analytics. There are no third-party trackers in Phaze.</li>
+        </ul>
+
+        <h2>3. Third parties</h2>
+        <ul>
+            <li><strong>Email delivery:</strong> verification and password-reset emails are delivered via an SMTP provider. The provider sees your email address and the subject line.</li>
+            <li><strong>SMS delivery</strong> (if you opt in to phone verification): handled via Twilio. Twilio sees your phone number and the OTP.</li>
+            <li><strong>Hosting:</strong> <code>phazechat.world</code> runs on a commercial hosting provider. Your IP is visible to the provider for as long as your connection is open.</li>
+        </ul>
+
+        <h2>4. Encryption</h2>
+        <p>Every pairwise conversation is encrypted with keys generated on-device using <code>x/crypto/nacl/box</code> (Curve25519). Keys are pinned on first contact (Trust On First Use). We do not hold, escrow, or have any access to your private keys.</p>
+
+        <h2>5. Your rights</h2>
+        <ul>
+            <li><strong>Delete your account:</strong> email <a href="mailto:privacy@phazechat.world">privacy@phazechat.world</a> and we will purge your row from our database.</li>
+            <li><strong>Export:</strong> your local SQLite database is yours. Back it up anywhere.</li>
+            <li><strong>Change email/password:</strong> from the app's Settings panel.</li>
+        </ul>
+
+        <h2>6. Law enforcement requests</h2>
+        <p>We publish our practice transparently: we will respond to lawful process in the jurisdiction of our hosting provider. Because messages are E2EE, we cannot hand over content we do not have. We can hand over the metadata in Section 1.</p>
+
+        <h2>7. Changes</h2>
+        <p>If we change this policy, we will update the "Last updated" date and note the change. Material changes will be announced to all verified email addresses at least 7 days before taking effect.</p>
+
+        <h2>8. Contact</h2>
+        <p>Questions or complaints: <a href="mailto:privacy@phazechat.world">privacy@phazechat.world</a>.</p>
+    </div></section>
+
+    <footer class="footer"><div class="container">© 2024–2026 Phaze · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.</div></footer>
+</body>
+</html>

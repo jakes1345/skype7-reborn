@@ -1151,6 +1151,18 @@ func (s *NexusServer) supportHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "templates/support.html")
 }
 
+func (s *NexusServer) privacyHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "templates/privacy.html")
+}
+
+func (s *NexusServer) termsHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "templates/terms.html")
+}
+
+func (s *NexusServer) legalHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "templates/legal.html")
+}
+
 func (s *NexusServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	v := os.Getenv("Phaze_LATEST_VERSION")
 	if v == "" {
@@ -1231,6 +1243,9 @@ func main() {
 	http.HandleFunc("/rates", server.ratesHandler)
 	http.HandleFunc("/about", server.aboutHandler)
 	http.HandleFunc("/support", server.supportHandler)
+	http.HandleFunc("/privacy", server.privacyHandler)
+	http.HandleFunc("/terms", server.termsHandler)
+	http.HandleFunc("/legal", server.legalHandler)
 	http.HandleFunc("/version", server.versionHandler)
 	http.HandleFunc("/health", healthHandler)
 
