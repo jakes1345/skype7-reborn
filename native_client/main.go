@@ -510,7 +510,7 @@ func (s *PhazeApp) ConnectToServer(password string) error {
 	}
 
 	// If user manually set a different server, prioritize it
-	if s.ServerAddress != "" && !strings.Contains(s.ServerAddress, "localhost") && !strings.Contains(s.ServerAddress, "fly.dev") && s.ServerAddress != s.Infra.Gateway {
+	if s.ServerAddress != "" && !strings.Contains(s.ServerAddress, "localhost") && s.ServerAddress != s.Infra.Gateway {
 		targets = append([]string{s.ServerAddress}, targets...)
 	}
 

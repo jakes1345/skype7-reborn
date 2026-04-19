@@ -18,7 +18,7 @@ type NexusMessage struct {
 }
 
 func main() {
-	u := url.URL{Scheme: "wss", Host: "shadow7-reborn.fly.dev", Path: "/cable"}
+	u := url.URL{Scheme: "wss", Host: "phazechat.world", Path: "/ws"}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Fatal("dial:", err)

@@ -19,7 +19,7 @@ Embedded within the core is the **Phaze Sentinel**, an autonomous self-healing a
 
 ### 🌐 Three-Layer Mesh Architecture
 Communication is guaranteed through three redundant signaling layers:
-1.  **Phaze Nexus**: High-speed global relays (Fly.io enabled) for instant connectivity.
+1.  **Phaze Nexus**: High-speed sovereign relays (self-hosted at `phazechat.world`) for instant connectivity.
 2.  **Sovereign DHT**: Kademlia-based P2P peer discovery using `libp2p` for total independence.
 3.  **Local Mesh**: Zero-config mDNS discovery for LAN/Air-gapped communication.
 
