@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Phaze — Free Video Calling</title>
+    <meta name="description" content="Download Phaze for Windows, Mac, and Linux. Free encrypted video calls, voice calls, and instant messaging.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --skype-blue: #00AFF0;
+            --skype-dark: #0078D4;
+            --text-dark: #333;
+            --text-light: #666;
+            --bg-light: #f5f5f5;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Inter', system-ui, sans-serif; color: var(--text-dark); background: #fff; }
+        a { color: var(--skype-blue); text-decoration: none; }
+        .container { max-width: 1140px; margin: 0 auto; padding: 0 20px; }
+
+        .navbar { background: #fff; border-bottom: 1px solid #e8e8e8; position: sticky; top: 0; z-index: 1000; }
+        .navbar .container { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+        .nav-brand { display: flex; align-items: center; gap: 8px; font-size: 1.4rem; font-weight: 700; color: var(--skype-blue); }
+        .nav-brand svg { width: 32px; height: 32px; }
+        .nav-links { display: flex; list-style: none; height: 100%; }
+        .nav-links a { display: flex; align-items: center; height: 100%; padding: 0 18px; color: var(--text-dark); font-size: 0.9rem; border-bottom: 3px solid transparent; transition: all 0.2s; }
+        .nav-links a:hover, .nav-links a.active { color: var(--skype-blue); border-bottom-color: var(--skype-blue); }
+        .nav-right { display: flex; align-items: center; gap: 16px; }
+        .nav-get-btn { background: var(--skype-blue); color: #fff !important; padding: 8px 24px; border-radius: 4px; font-weight: 600; }
+
+        .dl-hero {
+            background: linear-gradient(135deg, #00AFF0, #0078D4);
+            color: #fff; padding: 60px 0 80px; text-align: center;
+        }
+        .dl-hero h1 { font-size: 2.5rem; font-weight: 300; margin-bottom: 12px; }
+        .dl-hero h1 strong { font-weight: 700; }
+        .dl-hero p { font-size: 1.1rem; opacity: 0.9; max-width: 550px; margin: 0 auto; }
+
+        .platform-section { padding: 60px 0; }
+        .platform-section h2 { text-align: center; font-size: 1.6rem; font-weight: 400; margin-bottom: 40px; color: var(--text-dark); }
+
+        .platform-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 30px; max-width: 800px; margin: 0 auto;
+        }
+        .platform-card {
+            background: #fff; border: 2px solid #e8e8e8; border-radius: 16px; padding: 40px 30px;
+            text-align: center; transition: all 0.3s;
+        }
+        .platform-card:hover { border-color: var(--skype-blue); box-shadow: 0 10px 40px rgba(0,175,240,0.15); transform: translateY(-4px); }
+        .platform-card.recommended { border-color: var(--skype-blue); position: relative; }
+        .platform-card.recommended::before {
+            content: 'Recommended'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: var(--skype-blue); color: #fff; padding: 4px 16px; border-radius: 20px; font-size: 0.75rem; font-weight: 600;
+        }
+        .platform-icon { font-size: 3rem; margin-bottom: 16px; display: block; }
+        .platform-name { font-size: 1.3rem; font-weight: 700; margin-bottom: 4px; }
+        .platform-detail { color: var(--text-light); font-size: 0.85rem; margin-bottom: 24px; }
+        .platform-btn {
+            display: inline-block; background: var(--skype-blue); color: #fff; padding: 12px 32px;
+            border-radius: 6px; font-weight: 600; font-size: 0.95rem; transition: all 0.2s;
+        }
+        .platform-btn:hover { background: var(--skype-dark); transform: translateY(-1px); }
+
+        .req-section { padding: 40px 0 80px; }
+        .req-section h3 { text-align: center; font-size: 1.2rem; margin-bottom: 30px; color: var(--text-dark); }
+        .req-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 30px; max-width: 800px; margin: 0 auto; }
+        .req-card { background: var(--bg-light); border-radius: 12px; padding: 24px; }
+
+        .verify-section { padding: 60px 0; border-top: 1px solid #eee; background: #fff; }
+        .verify-section h3 { text-align: center; margin-bottom: 20px; font-weight: 300; }
+        .verify-grid { max-width: 800px; margin: 0 auto; display: grid; gap: 20px; }
+        .verify-item { background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid var(--skype-blue); }
+        .verify-item strong { display: block; margin-bottom: 5px; font-size: 0.9rem; }
+        .verify-item code { display: block; background: #eee; padding: 10px; border-radius: 4px; font-size: 0.85rem; word-break: break-all; }
+        .req-card h4 { font-size: 0.95rem; margin-bottom: 12px; color: var(--text-dark); }
+        .req-card ul { list-style: none; }
+        .req-card li { font-size: 0.85rem; color: var(--text-light); margin-bottom: 6px; padding-left: 16px; position: relative; }
+        .req-card li::before { content: '•'; position: absolute; left: 0; color: var(--skype-blue); }
+
+        .footer { background: #1a1a1a; color: #999; padding: 30px 0; text-align: center; font-size: 0.8rem; }
+        .footer a { color: #bbb; }
+
+        @media (max-width: 768px) {
+            .platform-grid, .req-grid { grid-template-columns: 1fr; max-width: 400px; }
+            .nav-links { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="/" class="nav-brand">
+                <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="15" fill="#00AFF0"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="16" font-weight="700" font-family="sans-serif">P</text></svg>
+                Phaze
+            </a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="/features">Features</a></li>
+                <li><a href="/download" class="active">Downloads</a></li>
+                <li><a href="/rates">Rates</a></li>
+                <li><a href="/about">About</a></li>
+            </ul>
+            <div class="nav-right">
+                <a href="/download" class="nav-get-btn">Get Phaze</a>
+            </div>
+        </div>
+    </nav>
+
+    <section class="dl-hero">
+        <div class="container">
+            <h1><strong>Download Phaze</strong></h1>
+            <p>Available for Windows, macOS, Linux and Android. Free, private, and sovereign.</p>
+        </div>
+    </section>
+
+    <section class="platform-section">
+        <div class="container">
+            <h2>Choose your platform</h2>
+            <div class="platform-grid" id="platforms">
+                <div class="platform-card" id="card-windows">
+                    <span class="platform-icon">🪟</span>
+                    <div class="platform-name">Windows</div>
+                    <div class="platform-detail">Windows 10+ · x64 · <strong>Surface Pro</strong></div>
+                    <a href="/downloads/Phaze.exe" class="platform-btn">Download .exe</a>
+                </div>
+                <div class="platform-card" id="card-linux">
+                    <span class="platform-icon">🐧</span>
+                    <div class="platform-name">Linux</div>
+                    <div class="platform-detail">Kali, Fedora, RHEL, Arch, Debian, Ubuntu · x64</div>
+                    <a href="/downloads/Phaze.linux" class="platform-btn">Download Binary</a>
+                </div>
+                <div class="platform-card" id="card-macos">
+                    <span class="platform-icon">🍎</span>
+                    <div class="platform-name">macOS</div>
+                    <div class="platform-detail">Ventura+ · Intel & Apple Silicon</div>
+                    <a href="/downloads/Phaze.dmg" class="platform-btn">Download .dmg</a>
+                </div>
+                <div class="platform-card" id="card-android">
+                    <span class="platform-icon">📱</span>
+                    <div class="platform-name">Android</div>
+                    <div class="platform-detail">Android 10+ · ARM64</div>
+                    <a href="/downloads/Phaze.apk" class="platform-btn">Download .apk</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="req-section">
+        <div class="container">
+            <h3>System Requirements</h3>
+            <div class="req-grid">
+                <div class="req-card">
+                    <h4>Windows</h4>
+                    <ul>
+                        <li>Windows 10 or later</li>
+                        <li>64-bit processor</li>
+                        <li>2 GB RAM minimum</li>
+                        <li>200 MB disk space</li>
+                        <li>Webcam for video calls</li>
+                    </ul>
+                </div>
+                <div class="req-card">
+                    <h4>Linux</h4>
+                    <ul>
+                        <li>Ubuntu 22.04+ / Fedora 38+</li>
+                        <li>x86_64 architecture</li>
+                        <li>OpenGL 2.0+ support</li>
+                        <li>PulseAudio or PipeWire</li>
+                        <li>200 MB disk space</li>
+                    </ul>
+                </div>
+                <div class="req-card">
+                    <h4>macOS</h4>
+                    <ul>
+                        <li>macOS 13 Ventura or later</li>
+                        <li>Intel or Apple Silicon</li>
+                        <li>2 GB RAM minimum</li>
+                        <li>200 MB disk space</li>
+                        <li>Webcam for video calls</li>
+                    </ul>
+                </div>
+                <div class="req-card">
+                    <h4>Android</h4>
+                    <ul>
+                        <li>Android 10 (API 29) or later</li>
+                        <li>ARM64 Architecture</li>
+                        <li>100 MB disk space</li>
+                        <li>Camera & Mic permissions</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="verify-section">
+        <div class="container">
+            <h3>Sovereign Verification</h3>
+            <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">
+                Phaze binaries are self-signed and sovereign. Verify your download bit-for-bit using the fingerprints below.
+            </p>
+            <div class="verify-grid">
+                <div class="verify-item">
+                    <strong>Phaze.apk (Android)</strong>
+                    <code>SHA-256: 3c30e69c2889868628a9acac8bcc6f6a6163c11c2081dcb0f4cd72a8224f37ce</code>
+                </div>
+                <div class="verify-item">
+                    <strong>Phaze.exe (Windows)</strong>
+                    <code>SHA-256: 190489cf572042391546b0f3681be49c8993717283005cb4e6f632b238e51601</code>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            © 2024–2026 Phaze · <a href="/legal">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.
+        </div>
+    </footer>
+
+    <script>
+        // Auto-detect platform and mark as recommended
+        const ua = navigator.userAgent.toLowerCase();
+        let card;
+        if (ua.includes('win')) card = document.getElementById('card-windows');
+        else if (ua.includes('mac')) card = document.getElementById('card-macos');
+        else if (ua.includes('linux')) card = document.getElementById('card-linux');
+        else if (ua.includes('android')) card = document.getElementById('card-android');
+        if (card) card.classList.add('recommended');
+    </script>
+</body>
+</html>

@@ -1,10 +1,11 @@
-module tazher-nexus
+module phaze-nexus
 
 go 1.25.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/crypto v0.50.0
+	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.30.0
 )
 

@@ -1,0 +1,44 @@
+name: Sovereign Apple Verification
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  verify-macos:
+    name: Native macOS Metal Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+      - name: Install Fyne Dependencies
+        run: |
+          go install fyne.io/fyne/v2/cmd/fyne@latest
+      - name: Build Native macOS App
+        run: |
+          cd native_client
+          go build -v -o Phaze.app main.go
+
+  verify-ios:
+    name: Native iOS Metal Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+      - name: Install fyne-cross
+        run: |
+          go install github.com/lucor/fyne-cross@latest
+      - name: Build Native iOS IPA
+        run: |
+          cd native_client
+          # We build without signing just to verify compilation on Apple hardware
+          # (Production signing happens during release)
+          fyne-cross ios --no-cache --app-id world.phazechat.app

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calling Rates — Phaze</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --skype-blue: #00AFF0; --skype-dark: #0078D4; --text-dark: #333; --text-light: #666; --bg-light: #f5f5f5; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Inter', system-ui, sans-serif; color: var(--text-dark); background: #fff; line-height: 1.6; }
+        a { color: var(--skype-blue); text-decoration: none; }
+        .container { max-width: 1140px; margin: 0 auto; padding: 0 20px; }
+
+        .navbar { background: #fff; border-bottom: 1px solid #e8e8e8; position: sticky; top: 0; z-index: 1000; }
+        .navbar .container { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+        .nav-brand { display: flex; align-items: center; gap: 8px; font-size: 1.4rem; font-weight: 700; color: var(--skype-blue); }
+        .nav-links { display: flex; list-style: none; height: 100%; }
+        .nav-links a { display: flex; align-items: center; height: 100%; padding: 0 18px; color: var(--text-dark); font-size: 0.9rem; border-bottom: 3px solid transparent; transition: all 0.2s; }
+        .nav-links a:hover, .nav-links a.active { color: var(--skype-blue); border-bottom-color: var(--skype-blue); }
+        .nav-get-btn { background: var(--skype-blue); color: #fff !important; padding: 8px 24px; border-radius: 4px; font-weight: 600; }
+
+        .rates-hero { background: linear-gradient(135deg, #00AFF0, #0078D4); color: #fff; padding: 60px 0; text-align: center; }
+        .rates-hero h1 { font-size: 2.5rem; font-weight: 300; margin-bottom: 12px; }
+        .rates-hero h1 strong { font-weight: 700; }
+
+        .rates-section { padding: 60px 0; }
+        .rates-section h2 { text-align: center; font-size: 1.8rem; margin-bottom: 40px; font-weight: 400; }
+        
+        .rates-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 60px; }
+        .rate-card { border: 1px solid #e8e8e8; border-radius: 12px; padding: 24px; text-align: center; transition: all 0.2s; }
+        .rate-card:hover { border-color: var(--skype-blue); box-shadow: 0 8px 30px rgba(0,0,0,0.05); }
+        .rate-card h3 { font-size: 1.1rem; margin-bottom: 16px; color: var(--text-light); text-transform: uppercase; letter-spacing: 1px; }
+        .rate-price { font-size: 2.5rem; font-weight: 700; color: var(--skype-blue); margin-bottom: 4px; }
+        .rate-unit { font-size: 0.9rem; color: var(--text-light); }
+        .rate-detail { font-size: 0.85rem; color: var(--text-light); margin-top: 16px; border-top: 1px solid #f0f0f0; padding-top: 16px; }
+
+        .cta-band { background: var(--bg-light); padding: 60px 0; text-align: center; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
+        .cta-band h2 { font-size: 1.8rem; margin-bottom: 24px; font-weight: 400; }
+        .btn-credit { display: inline-block; background: var(--skype-blue); color: #fff; padding: 14px 40px; border-radius: 6px; font-weight: 700; font-size: 1.1rem; }
+        .btn-credit:hover { background: var(--skype-dark); transform: translateY(-1px); box-shadow: 0 4px 15px rgba(0,175,240,0.3); }
+
+        .footer { background: #1a1a1a; color: #999; padding: 40px 0; text-align: center; font-size: 0.8rem; }
+        .footer a { color: #bbb; }
+        
+        @media (max-width: 768px) { .nav-links { display: none; } }
+    </style>
+</head>
+<body>
+    <nav class="navbar"><div class="container">
+        <a href="/" class="nav-brand"><svg viewBox="0 0 32 32" fill="none" width="32" height="32"><circle cx="16" cy="16" r="15" fill="#00AFF0"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="16" font-weight="700" font-family="sans-serif">P</text></svg> Phaze</a>
+        <ul class="nav-links"><li><a href="/">Home</a></li><li><a href="/features">Features</a></li><li><a href="/download">Download</a></li><li><a href="/rates" class="active">Rates</a></li><li><a href="/about">About</a></li></ul>
+        <div class="nav-right"><a href="/download" class="nav-get-btn">Get Phaze</a></div>
+    </div></nav>
+
+    <section class="rates-hero">
+        <div class="container">
+            <h1><strong>Calling Rates</strong></h1>
+            <p>Connect with landlines and mobiles worldwide for just a few cents.</p>
+        </div>
+    </section>
+
+    <section class="rates-section">
+        <div class="container">
+            <h2>Popular Destinations</h2>
+            <div class="rates-grid">
+                <div class="rate-card">
+                    <h3>United States</h3>
+                    <div class="rate-price">2.3¢</div>
+                    <div class="rate-unit">per minute</div>
+                    <div class="rate-detail">Landlines & Mobiles</div>
+                </div>
+                <div class="rate-card">
+                    <h3>United Kingdom</h3>
+                    <div class="rate-price">2.1¢</div>
+                    <div class="rate-unit">per minute</div>
+                    <div class="rate-detail">Landlines only</div>
+                </div>
+                <div class="rate-card">
+                    <h3>Canada</h3>
+                    <div class="rate-price">2.3¢</div>
+                    <div class="rate-unit">per minute</div>
+                    <div class="rate-detail">Landlines & Mobiles</div>
+                </div>
+                <div class="rate-card">
+                    <h3>China</h3>
+                    <div class="rate-price">1.9¢</div>
+                    <div class="rate-unit">per minute</div>
+                    <div class="rate-detail">Landlines & Mobiles</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="cta-band">
+        <div class="container">
+            <h2>Ready to call home?</h2>
+            <a href="/sign-in" class="btn-credit">Add Phaze Credit</a>
+            <p style="margin-top: 16px; color: var(--text-light); font-size: 0.9rem;">No subscription required. Pay only for what you use.</p>
+        </div>
+    </section>
+
+    <footer class="footer"><div class="container">© 2024–2026 Phaze · <a href="/legal">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.</div></footer>
+</body>
+</html>

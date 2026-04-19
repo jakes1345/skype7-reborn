@@ -18,14 +18,14 @@ type ActivityItem struct {
 	Content string
 }
 
-// TazherHome creates the classic 2-column "Tazher Home" view.
-func NewTazherHome(username, mood string, updates []ActivityItem, slicer *AeroSlicer, onMoodChange func(string)) fyne.CanvasObject {
+// PhazeHome creates the classic 2-column "Phaze Home" view.
+func NewPhazeHome(username, mood string, updates []ActivityItem, slicer *AeroSlicer, onMoodChange func(string)) fyne.CanvasObject {
 	// --- Sidebar / Left Column (The Hood) ---
-	avatar := canvas.NewImageFromFile("assets/default_avatar.png")
+	avatar := canvas.NewImageFromFile(ResolveAsset("assets/default_avatar.png"))
 	avatar.SetMinSize(fyne.NewSize(80, 80))
 	avatar.FillMode = canvas.ImageFillContain
 
-	logo := canvas.NewImageFromFile("assets/tazher_logo.png")
+	logo := canvas.NewImageFromFile(ResolveAsset("assets/phaze_logo.png"))
 	logo.SetMinSize(fyne.NewSize(120, 60))
 	logo.FillMode = canvas.ImageFillContain
 
@@ -53,7 +53,7 @@ func NewTazherHome(username, mood string, updates []ActivityItem, slicer *AeroSl
 	statusContainer := container.NewCenter(statusIcon)
 	statusContainer.Resize(fyne.NewSize(16, 16))
 
-	// The Hood Gradient Background (Tazher Aero Blue)
+	// The Hood Gradient Background (Phaze Aero Blue)
 	hoodBg := canvas.NewLinearGradient(
 		color.NRGBA{R: 0, G: 160, B: 245, A: 255},
 		color.NRGBA{R: 45, G: 190, B: 255, A: 255},
@@ -80,10 +80,10 @@ func NewTazherHome(username, mood string, updates []ActivityItem, slicer *AeroSl
 	// --- Feed / Feed Column ---
 	feedHeader := widget.NewLabelWithStyle("What's new with your friends?", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	
-	// Tiles (Tazher 7 Home style)
+	// Tiles (Phaze 7 Home style)
 	tiles := container.NewGridWithColumns(2,
 		createHomeTile("What's new?", "Check out the latest updates from your friends.", theme.InfoIcon()),
-		createHomeTile("Add Contacts", "Find people you know on Tazher.", theme.AccountIcon()),
+		createHomeTile("Add Contacts", "Find people you know on Phaze.", theme.AccountIcon()),
 		createHomeTile("Call Phones", "Low rates on calls to mobiles and landlines.", theme.SearchIcon()),
 		createHomeTile("Video Message", "Record and send a personal video message.", theme.VisibilityIcon()),
 	)

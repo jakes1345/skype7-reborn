@@ -23,7 +23,7 @@ func main() {
 	drawDot(img, 28, 0, dnd)
 	drawDot(img, 42, 0, offline)
 
-	f, _ := os.Create("assets/tazher7_master.png")
+	f, _ := os.Create("assets/phaze7_master.png")
 	defer f.Close()
 	png.Encode(f, img)
 }

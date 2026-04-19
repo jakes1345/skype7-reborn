@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About Phaze — Our Mission</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --skype-blue: #00AFF0; --skype-dark: #0078D4; --text-dark: #333; --text-light: #666; --bg-light: #f5f5f5; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Inter', system-ui, sans-serif; color: var(--text-dark); background: #fff; line-height: 1.6; }
+        a { color: var(--skype-blue); text-decoration: none; }
+        .container { max-width: 800px; margin: 0 auto; padding: 0 20px; }
+
+        .navbar { background: #fff; border-bottom: 1px solid #e8e8e8; position: sticky; top: 0; z-index: 1000; }
+        .navbar .container { max-width: 1140px; display: flex; align-items: center; justify-content: space-between; height: 60px; }
+        .nav-brand { display: flex; align-items: center; gap: 8px; font-size: 1.4rem; font-weight: 700; color: var(--skype-blue); }
+        .nav-links { display: flex; list-style: none; height: 100%; }
+        .nav-links a { display: flex; align-items: center; height: 100%; padding: 0 18px; color: var(--text-dark); font-size: 0.9rem; border-bottom: 3px solid transparent; transition: all 0.2s; }
+        .nav-links a:hover, .nav-links a.active { color: var(--skype-blue); border-bottom-color: var(--skype-blue); }
+        .nav-get-btn { background: var(--skype-blue); color: #fff !important; padding: 8px 24px; border-radius: 4px; font-weight: 600; }
+
+        .about-hero { padding: 80px 0; text-align: center; background: var(--bg-light); border-bottom: 1px solid #eee; }
+        .about-hero h1 { font-size: 3rem; font-weight: 300; margin-bottom: 20px; }
+        .about-hero h1 strong { font-weight: 700; color: var(--skype-blue); }
+
+        .about-content { padding: 80px 0; }
+        .about-content h2 { font-size: 1.8rem; margin-bottom: 24px; color: var(--text-dark); }
+        .about-content p { font-size: 1.1rem; color: var(--text-light); margin-bottom: 24px; }
+        
+        .mission-box { background: var(--skype-blue); color: #fff; padding: 40px; border-radius: 16px; margin: 40px 0; }
+        .mission-box h3 { font-size: 1.5rem; margin-bottom: 16px; }
+        .mission-box p { color: rgba(255,255,255,0.9); font-size: 1.1rem; margin-bottom: 0; }
+
+        .footer { background: #1a1a1a; color: #999; padding: 40px 0; text-align: center; font-size: 0.8rem; border-top: 1px solid #333; }
+        .footer a { color: #bbb; }
+        
+        @media (max-width: 768px) { .nav-links { display: none; } .about-hero h1 { font-size: 2.2rem; } }
+    </style>
+</head>
+<body>
+    <nav class="navbar"><div class="container">
+        <a href="/" class="nav-brand"><svg viewBox="0 0 32 32" fill="none" width="32" height="32"><circle cx="16" cy="16" r="15" fill="#00AFF0"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="16" font-weight="700" font-family="sans-serif">P</text></svg> Phaze</a>
+        <ul class="nav-links"><li><a href="/">Home</a></li><li><a href="/features">Features</a></li><li><a href="/downloads">Downloads</a></li><li><a href="/rates">Rates</a></li><li><a href="/about" class="active">About</a></li></ul>
+        <div class="nav-right"><a href="/downloads" class="nav-get-btn">Get Phaze</a></div>
+    </div></nav>
+
+    <section class="about-hero">
+        <div class="container">
+            <h1><strong>The Phaze</strong> Story</h1>
+            <p>We're on a mission to bring back the era of sovereign communication.</p>
+        </div>
+    </section>
+
+    <section class="about-content">
+        <div class="container">
+            <h2>Why Phaze?</h2>
+            <p>In 2014, Skype was the gold standard for staying in touch. It was fast, reliable, and familiar. But as the world moved toward centralized, ad-driven platforms, that classic experience was lost. We missed the bit-perfect Aero UI, the iconic sounds, and most importantly, the sense of privacy that came with peer-to-peer communication.</p>
+            
+            <div class="mission-box">
+                <h3>Our Mission</h3>
+                <p>To provide a sovereign, production-grade forensic reconstruction of the classic communication experience, hardened with modern encryption and built for a post-centralized world.</p>
+            </div>
+
+            <h2>Sovereign & Open</h2>
+            <p>Phaze isn't just a remake; it's an engine built from scratch in Go. It uses end-to-end encryption (NaCl/Box) by default and features a three-layer mesh network that ensures you can stay connected even when central servers are unreachable.</p>
+            <p>We believe your communication belongs to you. No telemetry, no cloud dependencies, and zero-knowledge relays. That's the Phaze promise.</p>
+            
+            <h2>Join the Mesh</h2>
+            <p>Phaze is built by sovereign engineers for sovereign users. Whether you're a forensic developer or just someone who misses the old days, there's a place for you in our network.</p>
+        </div>
+    </section>
+
+    <footer class="footer"><div class="container">© 2024–2026 Phaze · <a href="/legal">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.</div></footer>
+</body>
+</html>

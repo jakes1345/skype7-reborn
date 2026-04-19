@@ -47,7 +47,7 @@ func main() {
 	log.Println("[Test] Alice announced PubKey.")
 
 	// 3. Encrypt a message for Bob (using Bob's known PubKey)
-	msgBody := "Secret TAZHER Intel"
+	msgBody := "Secret Phaze Intel"
 	var nonce [24]byte
 	if _, err := io.ReadFull(rand.Reader, nonce[:]); err != nil {
 		log.Fatal(err)
@@ -69,7 +69,7 @@ func main() {
 		log.Fatal("Decryption failed!")
 	}
 	
-	fmt.Printf("\n--- TAZHER SURVIVAL TEST RESULT ---\n")
+	fmt.Printf("\n--- Phaze SURVIVAL TEST RESULT ---\n")
 	fmt.Printf("Original:  %s\n", msgBody)
 	fmt.Printf("Cipher:    %s\n", payload)
 	fmt.Printf("Decrypted: %s\n", string(decrypted))

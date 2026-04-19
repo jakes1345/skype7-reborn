@@ -71,7 +71,7 @@ func NewSettingsDialog(props SettingsProps) fyne.CanvasObject {
 	scanBtn.Importance = widget.WarningImportance
 
 	sentinelTab := container.NewVScroll(container.NewVBox(
-		widget.NewLabelWithStyle("TAZHER Sentinel Diagnostic", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Phaze Sentinel Diagnostic", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabel("Autonomous system health and network path auditing."),
 		widget.NewSeparator(),
 		scanBtn,

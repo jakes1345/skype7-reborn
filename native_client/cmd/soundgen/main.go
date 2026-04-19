@@ -26,7 +26,51 @@ func main() {
 	generate(dir, "CallEnd.wav", callEndSound())
 	generate(dir, "CallError.wav", callErrorSound())
 
+	// Sounds referenced in main.go that previously had no asset.
+	generate(dir, "MessageOutgoing.wav", messageOutgoingSound())
+	generate(dir, "MessageIncoming.wav", messageReceivedSound()) // alias for MessageReceived
+	generate(dir, "FriendOnline.wav", friendOnlineSound())
+	generate(dir, "CallHangup.wav", callEndSound()) // alias for CallEnd
+	generate(dir, "EchoGreeting.wav", echoGreetingSound())
+	generate(dir, "Beep.wav", beepSound())
+
 	println("All sounds generated in", dir)
+}
+
+// messageOutgoingSound: a brief, bright "swoosh-pip" sent confirmation.
+func messageOutgoingSound() []float64 {
+	dur := 0.35
+	buf := make([]float64, int(dur*sampleRate))
+	addTone(buf, 1318.51, 0.0, 0.10, 0.35, true) // E6
+	addTone(buf, 1567.98, 0.08, 0.18, 0.40, true) // G6
+	return buf
+}
+
+// friendOnlineSound: gentle two-note ping in a rising fifth.
+func friendOnlineSound() []float64 {
+	dur := 0.55
+	buf := make([]float64, int(dur*sampleRate))
+	addTone(buf, 659.25, 0.0, 0.18, 0.40, true)  // E5
+	addTone(buf, 987.77, 0.18, 0.30, 0.45, true) // B5
+	return buf
+}
+
+// echoGreetingSound: warm three-note opening, used for the echo / sound test contact.
+func echoGreetingSound() []float64 {
+	dur := 1.6
+	buf := make([]float64, int(dur*sampleRate))
+	addTone(buf, 523.25, 0.00, 0.40, 0.45, true)  // C5
+	addTone(buf, 659.25, 0.40, 0.40, 0.50, true)  // E5
+	addTone(buf, 783.99, 0.80, 0.70, 0.55, true)  // G5
+	return buf
+}
+
+// beepSound: short echo-test "beep" tone.
+func beepSound() []float64 {
+	dur := 0.25
+	buf := make([]float64, int(dur*sampleRate))
+	addTone(buf, 1000.0, 0.0, 0.22, 0.55, true)
+	return buf
 }
 
 // loginSound: the classic ascending "boo-doo-doo-doo-DOOP" Shadow login

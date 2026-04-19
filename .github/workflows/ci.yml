@@ -29,6 +29,8 @@ jobs:
           go build -o tazher-native-linux ./native_client
           go build -o tazher-nexus-linux ./nexus_server
 
-      #- name: Test TAZHER Suite
-      #  run: go test -v ./native_client/... ./nexus_server/...
+      - name: Test TAZHER Suite
+        run: |
+          cd native_client && go test -v ./internal/...
+          cd ../nexus_server && go test -v ./...
 

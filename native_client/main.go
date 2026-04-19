@@ -5,15 +5,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-	"image/color"
 
 	"github.com/gorilla/websocket"
 	"github.com/zalando/go-keyring"
@@ -28,15 +30,15 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"tazher-native/internal/chat"
-	"tazher-native/internal/crypto"
-	"tazher-native/internal/sentinel"
-	"tazher-native/internal/ui"
+	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/speaker"
 	"github.com/faiface/beep/wav"
-	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/pion/webrtc/v3"
+	"phaze-native/internal/chat"
+	"phaze-native/internal/crypto"
+	"phaze-native/internal/sentinel"
+	"phaze-native/internal/ui"
 )
 
 type Infrastructure struct {
@@ -47,12 +49,12 @@ type Infrastructure struct {
 	ASM      string
 }
 
-var IxChatsInfra = Infrastructure{
-	API:      "https://api.ixchats.com",
-	Login:    "https://login.ixchats.com",
-	Gateway:  "wss://client-s.gateway.messenger.ixchats.com/cable",
-	Contacts: "https://contacts.ixchats.com",
-	ASM:      "https://api.asm.ixchats.com",
+var PhazeInfra = Infrastructure{
+	API:      "https://phazechat.world",
+	Login:    "https://phazechat.world",
+	Gateway:  "wss://phazechat.world/ws",
+	Contacts: "https://phazechat.world",
+	ASM:      "https://phazechat.world",
 }
 
 func humanSize(n int) string {
@@ -70,41 +72,42 @@ func humanSize(n int) string {
 }
 
 const (
-	Version        = "1.0.0-TAZHER (Forensic)"
-	keyringService = "tazher-sovereign"
+	Version        = "1.0.0-Phaze (Forensic)"
+	keyringService = "phaze-sovereign"
 )
 
 // NexusMessage matches the Nexus server protocol
 type NexusMessage struct {
-	Type      string   `json:"type"`
-	Sender    string   `json:"sender"`
-	Recipient string   `json:"recipient"`
-	Body      string   `json:"body"`
-	Status    string   `json:"status"`
-	Results   []string `json:"results"`
-	SDP       string   `json:"sdp"`
-	Candidate string   `json:"candidate"`
-	Error     string   `json:"error"`
-	Email       string   `json:"email,omitempty"`
-	Mood        string   `json:"mood,omitempty"`
-	DisplayName string   `json:"display_name,omitempty"`
-	Phone       string   `json:"phone,omitempty"`
-	Location    string   `json:"location,omitempty"`
-	Birthday    string   `json:"birthday,omitempty"`
-	Language    string   `json:"language,omitempty"`
-	ConvoID     string   `json:"convo_id,omitempty"`
-	ConvoName string   `json:"convo_name,omitempty"`
-	Members   []string `json:"members,omitempty"`
-	Token     string   `json:"token,omitempty"`
-	Endpoint  string   `json:"endpoint,omitempty"`
-	PublicKey []byte   `json:"public_key,omitempty"` // For E2EE key exchange
-	TurnConfig *chat.TurnConfig `json:"turn_config,omitempty"`
+	Type           string           `json:"type"`
+	Sender         string           `json:"sender"`
+	Recipient      string           `json:"recipient"`
+	Body           string           `json:"body"`
+	Status         string           `json:"status"`
+	Results        []string         `json:"results"`
+	SDP            string           `json:"sdp"`
+	Candidate      string           `json:"candidate"`
+	Error          string           `json:"error"`
+	Email          string           `json:"email,omitempty"`
+	Mood           string           `json:"mood,omitempty"`
+	DisplayName    string           `json:"display_name,omitempty"`
+	Phone          string           `json:"phone,omitempty"`
+	Location       string           `json:"location,omitempty"`
+	Birthday       string           `json:"birthday,omitempty"`
+	Language       string           `json:"language,omitempty"`
+	ConvoID        string           `json:"convo_id,omitempty"`
+	ConvoName      string           `json:"convo_name,omitempty"`
+	Members        []string         `json:"members,omitempty"`
+	Token          string           `json:"token,omitempty"`
+	Endpoint       string           `json:"endpoint,omitempty"`
+	PublicKey      []byte           `json:"public_key,omitempty"`
+	KeyFingerprint string           `json:"key_fingerprint,omitempty"`
+	TurnConfig     *chat.TurnConfig `json:"turn_config,omitempty"`
 }
 
-// TazherApp holds all application state
-type TazherApp struct {
+// PhazeApp holds all application state
+type PhazeApp struct {
 	App        fyne.App
-	MainWindow  fyne.Window
+	MainWindow fyne.Window
 
 	// Windows
 	ChatWindows map[string]fyne.Window
@@ -146,11 +149,11 @@ type TazherApp struct {
 	ContentStack *fyne.Container
 	MainSplit    *container.Split
 	P2P          *chat.P2PManager
-	
+
 	// Crypto Identity
-	PubKey       *[32]byte
-	PrivKey      *[32]byte
-	PeerKeys     map[string]*[32]byte // Cache for peer public keys
+	PubKey   *[32]byte
+	PrivKey  *[32]byte
+	PeerKeys map[string]*[32]byte // Cache for peer public keys
 
 	// Extended State
 	OpenWindows  map[string]fyne.Window
@@ -159,17 +162,26 @@ type TazherApp struct {
 	isAway       bool
 	Status       string
 	Mood         string
-	
+
 	// Forensic Infrastructure
 	Infra    Infrastructure
 	Sentinel *sentinel.Sentinel
 }
 
-func NewTazherApp() *TazherApp {
-	a := app.New()
+func NewPhazeApp() *PhazeApp {
+	// Unlock the Sovereign Forensic Vault
+	if err := ui.UnlockVault(); err != nil {
+		log.Printf("[Vault] FATAL: Could not unlock sovereign assets: %v", err)
+		// We continue, but UI will be broken/unusable (Anti-Theft)
+	}
+
+	a := app.NewWithID("world.phazechat.app")
+	
+	// Load the Premium Master Icon from the Vault
+	a.SetIcon(ui.GetAssetResource("assets/Icon.png"))
 
 	home, _ := os.UserHomeDir()
-	dbDir := filepath.Join(home, ".private_tazher")
+	dbDir := filepath.Join(home, ".private_phaze")
 	os.MkdirAll(dbDir, 0755)
 	dbPath := filepath.Join(dbDir, "main.db")
 
@@ -240,8 +252,14 @@ func NewTazherApp() *TazherApp {
 		key TEXT PRIMARY KEY,
 		value TEXT
 	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS KeyPins (
+		skypename TEXT PRIMARY KEY,
+		fingerprint TEXT NOT NULL,
+		public_key BLOB NOT NULL,
+		first_seen INTEGER NOT NULL
+	)`)
 
-	s := &TazherApp{
+	s := &PhazeApp{
 		App:              a,
 		ChatWindows:      make(map[string]fyne.Window),
 		CallWindows:      make(map[string]fyne.Window),
@@ -254,10 +272,10 @@ func NewTazherApp() *TazherApp {
 		LastTypingSent:   make(map[string]time.Time),
 		UnreadCounts:     make(map[string]int),
 		Calls:            chat.NewCallManager(),
-		Infra:            IxChatsInfra,
+		Infra:            PhazeInfra,
 		PeerKeys:         make(map[string]*[32]byte),
 	}
-	
+
 	s.Sentinel = sentinel.NewSentinel(func(issue string) {
 		s.App.SendNotification(fyne.NewNotification("Sentinel System", "Repairing "+issue+"..."))
 	})
@@ -278,7 +296,7 @@ func NewTazherApp() *TazherApp {
 			return
 		}
 
-		// Persist the transfer record (Tazher-7-compatible schema)
+		// Persist the transfer record (Phaze-7-compatible schema)
 		s.DB.Exec(`INSERT INTO Transfers (type, partner_handle, partner_dispname, status, filename, filepath, filesize, bytestransferred)
 			VALUES (2, ?, ?, 8, ?, ?, ?, ?)`,
 			peerName, peerName, fileName, downloadPath, totalSize, len(data))
@@ -322,7 +340,7 @@ func NewTazherApp() *TazherApp {
 	return s
 }
 
-func (s *TazherApp) handleSearch(query string) {
+func (s *PhazeApp) handleSearch(query string) {
 	if query == "" {
 		return
 	}
@@ -334,19 +352,104 @@ func (s *TazherApp) handleSearch(query string) {
 	})
 }
 
-func (s *TazherApp) ShowProfileWindow(username string) {
+func (s *PhazeApp) requestPeerKey(peer string) {
+	s.SendMessage(NexusMessage{
+		Type:      "key_request",
+		Sender:    s.Username,
+		Recipient: peer,
+	})
+}
+
+// encryptForPeer wraps a field with E2EE: prefix when peer key is known.
+// Returns plaintext unchanged if no key — caller should require a key for
+// privacy-sensitive flows.
+func (s *PhazeApp) encryptForPeer(plain, recipient string) string {
+	if plain == "" || s.PrivKey == nil || recipient == "" {
+		return plain
+	}
+	peerPub, ok := s.PeerKeys[recipient]
+	if !ok {
+		return plain
+	}
+	enc, err := crypto.Encrypt([]byte(plain), peerPub, s.PrivKey)
+	if err != nil {
+		return plain
+	}
+	return "E2EE:" + hex.EncodeToString(enc)
+}
+
+// decryptFromPeer is the symmetric of encryptForPeer. Returns input
+// unchanged if not E2EE-wrapped. Returns empty string if decryption fails.
+func (s *PhazeApp) decryptFromPeer(field, sender string) string {
+	if !strings.HasPrefix(field, "E2EE:") {
+		return field
+	}
+	if s.PrivKey == nil || s.PeerKeys[sender] == nil {
+		return ""
+	}
+	encrypted, err := hex.DecodeString(field[5:])
+	if err != nil {
+		return ""
+	}
+	plain, err := crypto.Decrypt(encrypted, s.PeerKeys[sender], s.PrivKey)
+	if err != nil {
+		return ""
+	}
+	return string(plain)
+}
+
+// acceptPeerKey applies TOFU (trust-on-first-use) pinning. First key seen
+// for a peer is stored; subsequent keys must match or are rejected.
+func (s *PhazeApp) acceptPeerKey(peer string, pk *[32]byte, fpHint string) {
+	if peer == "" || pk == nil {
+		return
+	}
+	fp := crypto.Fingerprint(pk)
+	if fpHint != "" && fpHint != fp {
+		log.Printf("[Sovereign] WARNING: %s sent fingerprint %s but key hashes to %s — discarding", peer, fpHint, fp)
+		return
+	}
+
+	var pinnedFP string
+	row := s.DB.QueryRow("SELECT fingerprint FROM KeyPins WHERE skypename = ?", peer)
+	err := row.Scan(&pinnedFP)
+
+	switch {
+	case err != nil: // first time we've seen this peer
+		_, ierr := s.DB.Exec(
+			"INSERT INTO KeyPins (skypename, fingerprint, public_key, first_seen) VALUES (?, ?, ?, ?)",
+			peer, fp, pk[:], time.Now().Unix(),
+		)
+		if ierr != nil {
+			log.Printf("[Sovereign] pin insert failed for %s: %v", peer, ierr)
+			return
+		}
+		s.PeerKeys[peer] = pk
+		log.Printf("[Sovereign] Pinned new identity for %s (fp: %s)", peer, fp)
+	case pinnedFP == fp:
+		s.PeerKeys[peer] = pk
+	default:
+		log.Printf("[Sovereign] !! KEY MISMATCH for %s — pinned %s, got %s — REJECTING", peer, pinnedFP, fp)
+		s.App.SendNotification(fyne.NewNotification(
+			"Identity Mismatch",
+			peer+"'s key changed. Possible MITM. Message rejected.",
+		))
+	}
+}
+
+func (s *PhazeApp) ShowProfileWindow(username string) {
 	win := s.App.NewWindow("Profile: " + username)
 	win.Resize(fyne.NewSize(350, 500))
 
 	avatar := ui.NewAvatarWithStatus(120, "Online", "")
-	
+
 	// Fetch forensic details from local DB (reconstruction of contacts.skype.com data)
 	var mood, phone, email, location, bday string
 	s.DB.QueryRow("SELECT mood_text FROM Contacts WHERE skypename = ?", username).Scan(&mood)
-	
+
 	form := &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Tazher Name", Widget: widget.NewLabel(username)},
+			{Text: "Phaze Name", Widget: widget.NewLabel(username)},
 			{Text: "Mood", Widget: widget.NewLabel(mood)},
 			{Text: "Mobile", Widget: widget.NewLabel(phone)},
 			{Text: "Email", Widget: widget.NewLabel(email)},
@@ -368,46 +471,30 @@ func (s *TazherApp) ShowProfileWindow(username string) {
 	win.Show()
 }
 
-func (s *TazherApp) ShowBuyCreditDialog() {
-	win := s.App.NewWindow("Tazher Credit")
+func (s *PhazeApp) ShowBuyCreditDialog() {
+	win := s.App.NewWindow("Phaze Credit")
 	win.Resize(fyne.NewSize(400, 300))
 
 	options := widget.NewRadioGroup([]string{"$5.00", "$10.00", "$25.00"}, func(s string) {})
 	options.SetSelected("$10.00")
 
 	win.SetContent(container.NewPadded(container.NewVBox(
-		widget.NewLabelWithStyle("Add Tazher Credit", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		widget.NewLabel("You can use Tazher Credit to call mobiles and landlines at low rates."),
+		widget.NewLabelWithStyle("Add Phaze Credit", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("You can use Phaze Credit to call mobiles and landlines at low rates."),
 		options,
 		layout.NewSpacer(),
 		widget.NewButton("Add Credit", func() {
-			dialog.ShowInformation("TAZHER API", "Connecting to "+IxChatsInfra.API+"...", win)
+			dialog.ShowInformation("Phaze API", "Connecting to "+PhazeInfra.API+"...", win)
 			win.Close()
 		}),
 	)))
 	win.Show()
 }
 
-func (s *TazherApp) playSound(filename string) {
-	if !s.SoundEnabled {
-		return
-	}
-	f, err := os.Open("assets/sounds/" + filename)
-	if err != nil {
-		log.Printf("[Audio] Missing asset: %s", filename)
-		return
-	}
-	streamer, _, err := wav.Decode(f)
-	if err != nil {
-		log.Printf("[Audio] Decode error: %v", err)
-		return
-	}
-	speaker.Play(streamer)
-}
 
 // ---------- Network ----------
 
-func (s *TazherApp) ConnectToServer(password string) error {
+func (s *PhazeApp) ConnectToServer(password string) error {
 	s.ConnMu.Lock()
 	defer s.ConnMu.Unlock()
 
@@ -419,9 +506,9 @@ func (s *TazherApp) ConnectToServer(password string) error {
 	targets := []string{
 		s.Infra.Gateway,
 		"ws://localhost:8080/ws",
-		"wss://skype7-reborn.fly.dev/ws",
+		"wss://phazechat.world/ws",
 	}
-	
+
 	// If user manually set a different server, prioritize it
 	if s.ServerAddress != "" && !strings.Contains(s.ServerAddress, "localhost") && !strings.Contains(s.ServerAddress, "fly.dev") && s.ServerAddress != s.Infra.Gateway {
 		targets = append([]string{s.ServerAddress}, targets...)
@@ -442,7 +529,7 @@ func (s *TazherApp) ConnectToServer(password string) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("could not reach any Tazher Nexus: %w", err)
+		return fmt.Errorf("could not reach any Phaze Nexus: %w", err)
 	}
 	s.Conn = c
 
@@ -464,8 +551,8 @@ func (s *TazherApp) ConnectToServer(password string) error {
 		if !success {
 			return fmt.Errorf("invalid username or password")
 		}
-		s.playSound("Login.wav")
-		
+		s.PlaySound("Login.wav")
+
 		// Forensic Crypto Identity loading
 		var pub, priv []byte
 		err = s.DB.QueryRow("SELECT public_key, private_key FROM Accounts WHERE skypename = ?", s.Username).Scan(&pub, &priv)
@@ -486,10 +573,11 @@ func (s *TazherApp) ConnectToServer(password string) error {
 
 		// Sharing PubKey with Nexus and Peers
 		go s.SendMessage(NexusMessage{
-			Type:      "presence",
-			Sender:    s.Username,
-			Status:    "Online",
-			PublicKey: s.PubKey[:],
+			Type:           "presence",
+			Sender:         s.Username,
+			Status:         "Online",
+			PublicKey:      s.PubKey[:],
+			KeyFingerprint: crypto.Fingerprint(s.PubKey),
 		})
 
 		// Announce on DHT
@@ -515,25 +603,66 @@ func (s *TazherApp) ConnectToServer(password string) error {
 			return s.ConnectToServer(pass)
 		})
 
+		// Check for Sovereign Updates
+		go s.CheckForUpdates()
+
 		return nil
 	case <-time.After(5 * time.Second):
 		return fmt.Errorf("authentication timeout")
 	}
 }
 
-func (s *TazherApp) SendMessage(msg NexusMessage) {
-	// E2EE Encryption pass
-	if msg.Type == "msg" && s.PubKey != nil {
-		if peerPub, ok := s.PeerKeys[msg.Recipient]; ok {
-			encrypted, err := crypto.Encrypt([]byte(msg.Body), peerPub, s.PrivKey)
-			if err == nil {
-				msg.Body = "E2EE:" + hex.EncodeToString(encrypted)
-				log.Printf("[Sovereign] Sealed E2EE message for %s", msg.Recipient)
+func (s *PhazeApp) CheckForUpdates() {
+	resp, err := http.Get(s.Infra.API + "/api/v1/version")
+	if err != nil {
+		return // Silent fail for offline mesh
+	}
+	defer resp.Body.Close()
+
+	var verData struct {
+		Version string `json:"version"`
+		URL     string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&verData); err != nil {
+		return
+	}
+
+	if verData.Version != Version {
+		s.App.SendNotification(fyne.NewNotification("Sovereign Update", "Version "+verData.Version+" is available."))
+		dialog.ShowConfirm("Sovereign Update", 
+			"A new version of Phaze ("+verData.Version+") is available. Would you like to visit the download portal?", 
+			func(ok bool) {
+				if ok {
+					u, _ := url.Parse(s.Infra.API + "/download")
+					s.App.OpenURL(u)
+				}
+			}, s.MainWindow)
+	}
+}
+
+func (s *PhazeApp) SendMessage(msg NexusMessage) {
+	// Transparent E2EE for any field carrying privacy-sensitive content
+	// to a known recipient. Body for chat; SDP/Candidate for call signaling.
+	if s.PubKey != nil && msg.Recipient != "" {
+		_, haveKey := s.PeerKeys[msg.Recipient]
+		needsCrypto := msg.Type == "msg" ||
+			msg.Type == "call_offer" ||
+			msg.Type == "call_answer" ||
+			msg.Type == "ice_candidate"
+		if needsCrypto && !haveKey {
+			log.Printf("[Sovereign] No key for %s, requesting...", msg.Recipient)
+			go s.requestPeerKey(msg.Recipient)
+		}
+		if haveKey {
+			if msg.Body != "" {
+				msg.Body = s.encryptForPeer(msg.Body, msg.Recipient)
 			}
-		} else {
-			// Transparently request key via presence broadcast if missing
-			log.Printf("[Sovereign] No PubKey for %s, sending cleartext + key request", msg.Recipient)
-			go s.SendMessage(NexusMessage{Type: "presence", Sender: s.Username, Status: s.Status, PublicKey: s.PubKey[:]})
+			if msg.SDP != "" {
+				msg.SDP = s.encryptForPeer(msg.SDP, msg.Recipient)
+			}
+			if msg.Candidate != "" {
+				msg.Candidate = s.encryptForPeer(msg.Candidate, msg.Recipient)
+			}
 		}
 	}
 
@@ -546,7 +675,7 @@ func (s *TazherApp) SendMessage(msg NexusMessage) {
 		if err := conn.WriteJSON(msg); err == nil {
 			sent = true
 			if msg.Type == "msg" {
-				s.playSound("MessageOutgoing.wav")
+				s.PlaySound("MessageOutgoing.wav")
 			}
 		}
 	}
@@ -566,7 +695,7 @@ func (s *TazherApp) SendMessage(msg NexusMessage) {
 	}
 }
 
-func (s *TazherApp) ReadLoop() {
+func (s *PhazeApp) ReadLoop() {
 	for {
 		var msg NexusMessage
 		err := s.Conn.ReadJSON(&msg)
@@ -595,15 +724,27 @@ func (s *TazherApp) ReadLoop() {
 	}
 }
 
-func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
+func (s *PhazeApp) HandleIncomingMessage(msg NexusMessage) {
 	if s.Sentinel != nil {
 		s.Sentinel.Heartbeat()
+	}
+	// Transparent decrypt of any E2EE-wrapped fields. No-op for cleartext.
+	if msg.Sender != "" {
+		if msg.Body != "" {
+			msg.Body = s.decryptFromPeer(msg.Body, msg.Sender)
+		}
+		if msg.SDP != "" {
+			msg.SDP = s.decryptFromPeer(msg.SDP, msg.Sender)
+		}
+		if msg.Candidate != "" {
+			msg.Candidate = s.decryptFromPeer(msg.Candidate, msg.Sender)
+		}
 	}
 	switch msg.Type {
 	case "auth_result":
 		if msg.Status == "ok" {
 			log.Println("Authenticated with Nexus")
-			s.playSound("Login.wav")
+			s.PlaySound("Login.wav")
 			s.Username = msg.Sender
 			if msg.TurnConfig != nil {
 				log.Println("[Sovereign] Captured Dynamic Media Token.")
@@ -619,24 +760,10 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 		}
 
 	case "msg":
-		s.playSound("MessageIncoming.wav")
+		s.PlaySound("MessageIncoming.wav")
 		bodyText := msg.Body
-		
-		// Attempt forensic decryption if encapsulated
-		if strings.HasPrefix(msg.Body, "E2EE:") {
-			if s.PrivKey != nil && s.PeerKeys[msg.Sender] != nil {
-				encrypted, _ := hex.DecodeString(msg.Body[5:])
-				decrypted, err := crypto.Decrypt(encrypted, s.PeerKeys[msg.Sender], s.PrivKey)
-				if err == nil {
-					bodyText = string(decrypted)
-					log.Printf("[Sovereign] Decrypted E2EE message from %s", msg.Sender)
-				} else {
-					bodyText = "[Encrypted Message - Key Mismatch]"
-				}
-			} else {
-				// We don't have the peer key yet, maybe we should request it?
-				bodyText = "[Encrypted Message - Handshaking...]"
-			}
+		if bodyText == "" {
+			bodyText = "[Encrypted Message - Handshaking...]"
 		}
 
 		ts := time.Now().Unix()
@@ -677,24 +804,36 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 		if len(msg.PublicKey) == 32 {
 			var pk [32]byte
 			copy(pk[:], msg.PublicKey)
-			s.PeerKeys[msg.Sender] = &pk
-			log.Printf("[Sovereign] Captured E2EE PubKey for %s", msg.Sender)
+			s.acceptPeerKey(msg.Sender, &pk, msg.KeyFingerprint)
 		}
 		if msg.Status == "Online" {
-			s.playSound("FriendOnline.wav")
+			s.PlaySound("FriendOnline.wav")
+		}
+
+	case "key_request":
+		if s.PubKey != nil && msg.Sender != "" {
+			log.Printf("[Sovereign] %s requested our key, sending...", msg.Sender)
+			go s.SendMessage(NexusMessage{
+				Type:           "presence",
+				Sender:         s.Username,
+				Recipient:      msg.Sender,
+				Status:         s.Status,
+				PublicKey:      s.PubKey[:],
+				KeyFingerprint: crypto.Fingerprint(s.PubKey),
+			})
 		}
 
 	case "friend_status":
 		s.updateFriendStatus(msg.Sender, msg.Status)
 		if msg.Status == "Online" {
-			s.playSound("FriendOnline.wav")
+			s.PlaySound("FriendOnline.wav")
 		}
 
 	case "profile_update":
 		s.updateFriendProfile(msg.Sender, msg.DisplayName, msg.Mood)
 
 	case "friend_request":
-		s.playSound("MessageReceived.wav")
+		s.PlaySound("MessageReceived.wav")
 		s.PendingInbound = append(s.PendingInbound, msg.Sender)
 		s.App.SendNotification(fyne.NewNotification(
 			"Friend Request",
@@ -706,7 +845,7 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 
 	case "friend_accepted":
 		s.PlaySound("MessageReceived.wav")
-		s.DB.Exec("INSERT OR IGNORE INTO Contacts (tazhername, status) VALUES (?, 'Online')", msg.Sender)
+		s.DB.Exec("INSERT OR IGNORE INTO Contacts (skypename, availability) VALUES (?, 1)", msg.Sender)
 		s.loadFriends()
 		if s.ContactList != nil {
 			s.ContactList.Refresh()
@@ -723,8 +862,8 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 		}
 
 	case "call_offer":
-		s.playSound("CallIncoming.wav")
-		
+		s.PlaySound("CallIncoming.wav")
+
 		// Forensic ICE Server Matrix (Acting on developer audit)
 		iceConfig := webrtc.Configuration{
 			ICEServers: []webrtc.ICEServer{
@@ -733,14 +872,14 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 				{URLs: []string{"stun:stun2.l.google.com:19302"}},
 			},
 		}
-		
+
 		s.showIncomingCallDialog(msg.Sender, iceConfig, msg.SDP)
 
 	case "call_answer":
 		log.Printf("Call answered by %s", msg.Sender)
 
 	case "call_reject", "call_end":
-		s.playSound("CallHangup.wav")
+		s.PlaySound("CallHangup.wav")
 		if win, ok := s.CallWindows[msg.Sender]; ok {
 			win.Close()
 			delete(s.CallWindows, msg.Sender)
@@ -758,11 +897,11 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 		}
 
 	case "kicked":
-		s.App.SendNotification(fyne.NewNotification("Tazher", msg.Body))
+		s.App.SendNotification(fyne.NewNotification("Phaze", msg.Body))
 		log.Println("Kicked:", msg.Body)
 
 	case "friend_removed":
-		s.DB.Exec("DELETE FROM Contacts WHERE tazhername = ?", msg.Sender)
+		s.DB.Exec("DELETE FROM Contacts WHERE skypename = ?", msg.Sender)
 		s.loadFriends()
 		if s.ContactList != nil {
 			s.ContactList.Refresh()
@@ -814,7 +953,7 @@ func (s *TazherApp) HandleIncomingMessage(msg NexusMessage) {
 
 // ---------- Friend Management ----------
 
-func (s *TazherApp) loadFriends() {
+func (s *PhazeApp) loadFriends() {
 	s.Friends = nil
 	// Built-in Echo Service
 	s.Friends = append(s.Friends, ui.FriendInfo{
@@ -823,7 +962,7 @@ func (s *TazherApp) loadFriends() {
 		Status:      "Online",
 		Mood:        "Call me to test your microphone.",
 	})
-	
+
 	rows, err := s.DB.Query("SELECT skypename, displayname, mood_text, availability FROM Contacts ORDER BY availability DESC, skypename ASC")
 	if err != nil {
 		log.Printf("[DB] loadFriends: %v", err)
@@ -836,21 +975,28 @@ func (s *TazherApp) loadFriends() {
 		rows.Scan(&f.Username, &f.DisplayName, &f.Mood, &avail)
 		// Map availability to Skype 7 status strings
 		switch avail {
-		case 1: f.Status = "Online"
-		case 2: f.Status = "Away"
-		case 3: f.Status = "Do Not Disturb"
-		default: f.Status = "Offline"
+		case 1:
+			f.Status = "Online"
+		case 2:
+			f.Status = "Away"
+		case 3:
+			f.Status = "Do Not Disturb"
+		default:
+			f.Status = "Offline"
 		}
 		s.Friends = append(s.Friends, f)
 	}
 }
 
-func (s *TazherApp) updateFriendStatus(username, status string) {
+func (s *PhazeApp) updateFriendStatus(username, status string) {
 	avail := 0
 	switch status {
-	case "Online": avail = 1
-	case "Away": avail = 2
-	case "Do Not Disturb": avail = 3
+	case "Online":
+		avail = 1
+	case "Away":
+		avail = 2
+	case "Do Not Disturb":
+		avail = 3
 	}
 	s.DB.Exec("UPDATE Contacts SET availability = ? WHERE skypename = ?", avail, username)
 	for i, f := range s.Friends {
@@ -864,7 +1010,7 @@ func (s *TazherApp) updateFriendStatus(username, status string) {
 	}
 }
 
-func (s *TazherApp) updateFriendProfile(username, displayName, mood string) {
+func (s *PhazeApp) updateFriendProfile(username, displayName, mood string) {
 	s.DB.Exec("UPDATE Contacts SET displayname = ?, mood_text = ? WHERE skypename = ?", displayName, mood, username)
 	for i, f := range s.Friends {
 		if f.Username == username {
@@ -878,7 +1024,7 @@ func (s *TazherApp) updateFriendProfile(username, displayName, mood string) {
 	}
 }
 
-func (s *TazherApp) showFriendRequestDialog(from string) {
+func (s *PhazeApp) showFriendRequestDialog(from string) {
 	if s.MainWindow == nil {
 		return
 	}
@@ -887,7 +1033,7 @@ func (s *TazherApp) showFriendRequestDialog(from string) {
 		func(accept bool) {
 			if accept {
 				s.SendMessage(NexusMessage{Type: "friend_accept", Sender: from})
-				s.DB.Exec("INSERT OR IGNORE INTO Contacts (tazhername, status) VALUES (?, 'Online')", from)
+				s.DB.Exec("INSERT OR IGNORE INTO Contacts (skypename, availability) VALUES (?, 1)", from)
 				s.loadFriends()
 				if s.ContactList != nil {
 					s.ContactList.Refresh()
@@ -905,7 +1051,7 @@ func (s *TazherApp) showFriendRequestDialog(from string) {
 		}, s.MainWindow)
 }
 
-func (s *TazherApp) removeContact(name string) {
+func (s *PhazeApp) removeContact(name string) {
 	dialog.ShowConfirm("Remove Contact",
 		"Remove "+name+" from your contacts?",
 		func(ok bool) {
@@ -917,7 +1063,7 @@ func (s *TazherApp) removeContact(name string) {
 				Sender:    s.Username,
 				Recipient: name,
 			})
-			s.DB.Exec("DELETE FROM Contacts WHERE tazhername = ?", name)
+			s.DB.Exec("DELETE FROM Contacts WHERE skypename = ?", name)
 			s.loadFriends()
 			if s.ContactList != nil {
 				s.ContactList.Refresh()
@@ -927,12 +1073,12 @@ func (s *TazherApp) removeContact(name string) {
 
 // ---------- Sound ----------
 
-func (s *TazherApp) PlaySound(name string) {
+func (s *PhazeApp) PlaySound(name string) {
 	if !s.SoundEnabled {
 		return
 	}
 	go func() {
-		soundPath := filepath.Join("assets", "sounds", name)
+		soundPath := ui.ResolveAsset(filepath.Join("assets", "sounds", name))
 		f, err := os.Open(soundPath)
 		if err != nil {
 			return // Sound file missing, skip silently
@@ -945,12 +1091,11 @@ func (s *TazherApp) PlaySound(name string) {
 			return // Empty placeholder, skip
 		}
 
-		streamer, format, err := wav.Decode(f)
+		streamer, _, err := wav.Decode(f)
 		if err != nil {
 			return
 		}
 
-		speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 		done := make(chan struct{})
 		speaker.Play(beep.Seq(streamer, beep.Callback(func() {
 			streamer.Close()
@@ -962,11 +1107,11 @@ func (s *TazherApp) PlaySound(name string) {
 
 // ---------- Calling ----------
 
-func (s *TazherApp) StartCall(name string) {
+func (s *PhazeApp) StartCall(name string) {
 	if _, exists := s.CallWindows[name]; exists {
 		return
 	}
-	// Forensic ICE Server Matrix (Acting on developer audit)
+
 	iceConfig := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
@@ -989,6 +1134,10 @@ func (s *TazherApp) StartCall(name string) {
 		return
 	}
 
+	if err := s.Calls.AddVideoTrack(name); err != nil {
+		log.Printf("AddVideoTrack failed: %v (video disabled)", err)
+	}
+
 	s.SendMessage(NexusMessage{
 		Type:      "call_offer",
 		Sender:    s.Username,
@@ -996,24 +1145,25 @@ func (s *TazherApp) StartCall(name string) {
 		SDP:       offerSDP,
 	})
 
-	s.playSound("CallOutgoing.wav")
+	s.PlaySound("CallOutgoing.wav")
 	s.openCallWindow(name, "Calling...")
 }
 
 // AnswerCall is the *callee* path: PC already built via HandleOffer; just open window.
-func (s *TazherApp) AnswerCall(name string) {
+func (s *PhazeApp) AnswerCall(name string) {
 	if _, exists := s.CallWindows[name]; exists {
 		return
 	}
 	s.openCallWindow(name, "Connecting...")
 }
 
-func (s *TazherApp) openCallWindow(name, initialStatus string) {
+func (s *PhazeApp) openCallWindow(name, initialStatus string) {
 	callWin := s.App.NewWindow("Call: " + name)
 	callWin.Resize(fyne.NewSize(300, 450))
 	callWin.SetFixedSize(true)
 	callWin.SetOnClosed(func() {
 		delete(s.CallWindows, name)
+		s.Calls.OnRemoteVideoFrameFor(name, nil)
 		s.SendMessage(NexusMessage{
 			Type:      "call_end",
 			Sender:    s.Username,
@@ -1024,9 +1174,25 @@ func (s *TazherApp) openCallWindow(name, initialStatus string) {
 
 	localVideo := ui.NewVideoPreview(80, 60)
 	remoteVideo := ui.NewVideoPreview(280, 210)
-	
+
+	// Pump locally captured frames to the peer at ~10fps via DataChannel JPEG.
+	var lastSent time.Time
+	localVideo.OnFrame = func(img image.Image) {
+		if time.Since(lastSent) < 100*time.Millisecond {
+			return
+		}
+		lastSent = time.Now()
+		if err := s.Calls.WriteVideoFrame(name, img, 100); err != nil {
+			log.Printf("[Video] send to %s: %v", name, err)
+		}
+	}
 	localVideo.Start()
-	// TODO: Wire remoteVideo to WebRTC stream
+
+	// Display remote frames as they arrive.
+	s.Calls.OnRemoteVideoFrameFor(name, func(img image.Image) {
+		remoteVideo.Image.Image = img
+		remoteVideo.Image.Refresh()
+	})
 
 	avatar := ui.NewAvatarWithStatus(128, "Online", s.getFriendAvatar(name))
 	statusLabel := widget.NewLabel(initialStatus)
@@ -1055,8 +1221,23 @@ func (s *TazherApp) openCallWindow(name, initialStatus string) {
 		muted = !muted
 		if muted {
 			muteBtn.SetText("Unmute")
+			s.Calls.SetMuted(name, true)
 		} else {
 			muteBtn.SetText("Mute")
+			s.Calls.SetMuted(name, false)
+		}
+	})
+
+	videoEnabled := true
+	var videoBtn *widget.Button
+	videoBtn = widget.NewButton("Video On", func() {
+		videoEnabled = !videoEnabled
+		if videoEnabled {
+			videoBtn.SetText("Video On")
+			s.Calls.EnableVideo(name, true)
+		} else {
+			videoBtn.SetText("Video Off")
+			s.Calls.EnableVideo(name, false)
 		}
 	})
 
@@ -1066,7 +1247,7 @@ func (s *TazherApp) openCallWindow(name, initialStatus string) {
 		statusLabel,
 		callTimer,
 		layout.NewSpacer(),
-		container.NewHBox(muteBtn, hangupBtn),
+		container.NewHBox(muteBtn, videoBtn, hangupBtn),
 	)
 
 	callWin.SetContent(container.NewPadded(content))
@@ -1075,7 +1256,6 @@ func (s *TazherApp) openCallWindow(name, initialStatus string) {
 	go func() {
 		for i := 0; i < 30; i++ {
 			time.Sleep(1 * time.Second)
-			// Placeholder for connection check
 			statusLabel.SetText("Connected P2P")
 			callTimer.Show()
 			callStart = time.Now()
@@ -1091,13 +1271,13 @@ func (s *TazherApp) openCallWindow(name, initialStatus string) {
 	}()
 }
 
-func (s *TazherApp) showIncomingCallDialog(from string, config webrtc.Configuration, sdp string) {
+func (s *PhazeApp) showIncomingCallDialog(from string, config webrtc.Configuration, sdp string) {
 	if s.MainWindow == nil {
 		return
 	}
-	
-	s.playSound("CallIncoming.wav")
-	
+
+	s.PlaySound("CallIncoming.wav")
+
 	win := s.App.NewWindow("Incoming Call")
 	win.Resize(fyne.NewSize(350, 500))
 	win.SetFixedSize(true)
@@ -1141,7 +1321,7 @@ func (s *TazherApp) showIncomingCallDialog(from string, config webrtc.Configurat
 
 // ---------- Chat Window ----------
 
-func (s *TazherApp) OpenChat(name string) fyne.CanvasObject {
+func (s *PhazeApp) OpenChat(name string) fyne.CanvasObject {
 	isGroup := false
 	var convoName string
 	s.DB.QueryRow("SELECT displayname FROM Conversations WHERE identity = ? AND type = 2", name).Scan(&convoName)
@@ -1173,9 +1353,9 @@ func (s *TazherApp) OpenChat(name string) fyne.CanvasObject {
 	scroll := container.NewVScroll(historyContainer)
 
 	// Status indicator
-	serverStatus := "TAZHER Unified Mesh"
+	serverStatus := "Phaze Unified Mesh"
 	if strings.Contains(s.ServerAddress, "localhost") {
-		serverStatus = "TAZHER: Local Node"
+		serverStatus = "Phaze: Local Node"
 	}
 	statusLabel := widget.NewLabelWithStyle(serverStatus, fyne.TextAlignCenter, fyne.TextStyle{Italic: true})
 
@@ -1232,11 +1412,10 @@ func (s *TazherApp) OpenChat(name string) fyne.CanvasObject {
 	return chatView.Container
 }
 
-
-func (s *TazherApp) CreateHomeView() fyne.CanvasObject {
+func (s *PhazeApp) CreateHomeView() fyne.CanvasObject {
 	var lastMood string
 	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'mood'").Scan(&lastMood)
-	return ui.NewTazherHome(s.Username, lastMood, nil, s.Slicer, func(val string) {
+	return ui.NewPhazeHome(s.Username, lastMood, nil, s.Slicer, func(val string) {
 		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('mood', ?)", val)
 		s.SendMessage(NexusMessage{
 			Type:   "status_update",
@@ -1247,10 +1426,10 @@ func (s *TazherApp) CreateHomeView() fyne.CanvasObject {
 	})
 }
 
-func (s *TazherApp) showNewGroupDialog() {
+func (s *PhazeApp) showNewGroupDialog() {
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("E.g. The Mesh Lords")
-	
+
 	checks := make([]*widget.Check, len(s.Friends))
 	items := []fyne.CanvasObject{widget.NewLabelWithStyle("Select members:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})}
 	for i, f := range s.Friends {
@@ -1281,7 +1460,7 @@ func (s *TazherApp) showNewGroupDialog() {
 				}
 			}
 			if len(members) == 0 {
-				dialog.ShowInformation("Tazher", "Select at least one contact", s.MainWindow)
+				dialog.ShowInformation("Phaze", "Select at least one contact", s.MainWindow)
 				return
 			}
 			convoID := fmt.Sprintf("convo_%d_%s", time.Now().UnixNano(), s.Username)
@@ -1297,26 +1476,26 @@ func (s *TazherApp) showNewGroupDialog() {
 	d.Show()
 }
 
-func (s *TazherApp) showAddContactDialog() {
+func (s *PhazeApp) showAddContactDialog() {
 	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("Enter Tazher name...")
+	nameEntry.SetPlaceHolder("Enter Phaze name...")
 
 	dialog.ShowForm("Add Contact", "Send Request", "Cancel",
 		[]*widget.FormItem{
-			widget.NewFormItem("Tazher Name", nameEntry),
+			widget.NewFormItem("Phaze Name", nameEntry),
 		},
 		func(ok bool) {
 			if ok && nameEntry.Text != "" {
 				recipient := nameEntry.Text
-				
+
 				// Attempt Nexus first
 				s.SendMessage(NexusMessage{
 					Type:      "friend_request",
 					Sender:    s.Username,
 					Recipient: recipient,
 				})
-				
-				dialog.ShowInformation("Tazher", "Friend request sent to "+recipient, s.MainWindow)
+
+				dialog.ShowInformation("Phaze", "Friend request sent to "+recipient, s.MainWindow)
 			}
 		}, s.MainWindow)
 }
@@ -1328,15 +1507,16 @@ func boolStr(b bool) string {
 	return "0"
 }
 
-
-
-func (s *TazherApp) getFriendAvatar(name string) string {
-	var avatar string
-	s.DB.QueryRow("SELECT avatar FROM Contacts WHERE tazhername = ?", name).Scan(&avatar)
-	return avatar
+func (s *PhazeApp) getFriendAvatar(name string) string {
+	var avatar []byte
+	s.DB.QueryRow("SELECT avatar_image FROM Contacts WHERE skypename = ?", name).Scan(&avatar)
+	if len(avatar) == 0 {
+		return ""
+	}
+	return string(avatar)
 }
 
-func (s *TazherApp) getFriendStatus(name string) string {
+func (s *PhazeApp) getFriendStatus(name string) string {
 	var status string
 	s.DB.QueryRow("SELECT value FROM Profile WHERE key = 'status'").Scan(&status)
 	if status == "" {
@@ -1345,8 +1525,8 @@ func (s *TazherApp) getFriendStatus(name string) string {
 	return status
 }
 
-func (s *TazherApp) ShowMainWindow() {
-	s.MainWindow = s.App.NewWindow("Tazher™ - " + s.Username)
+func (s *PhazeApp) ShowMainWindow() {
+	s.MainWindow = s.App.NewWindow("Phaze™ - " + s.Username)
 	s.MainWindow.Resize(fyne.NewSize(1000, 700))
 
 	s.loadFriends() // Ensure we have the list
@@ -1369,9 +1549,9 @@ func (s *TazherApp) ShowMainWindow() {
 		}
 	}
 
-	s.Sidebar = ui.NewTazherSidebar(ui.SidebarProps{
+	s.Sidebar = ui.NewPhazeSidebar(ui.SidebarProps{
 		Username:    s.Username,
-		Status:      "Online", 
+		Status:      "Online",
 		AvatarPath:  s.AvatarPath,
 		Slicer:      s.Slicer,
 		OnChatOpen:  s.handleChatOpen,
@@ -1381,13 +1561,13 @@ func (s *TazherApp) ShowMainWindow() {
 		OnProfile:   s.ShowMyProfileWindow,
 		CompactMode: s.CompactMode,
 		OnDialCall: func(number string) {
-			s.playSound("CallOutgoing.wav")
+			s.PlaySound("CallOutgoing.wav")
 			s.SendMessage(NexusMessage{
 				Type:   "pstn_call",
 				Sender: s.Username,
 				Body:   number,
 			})
-			dialog.ShowInformation("TAZHER PSTN", "Calling "+number+"...", s.MainWindow)
+			dialog.ShowInformation("Phaze PSTN", "Calling "+number+"...", s.MainWindow)
 		},
 		OnStatusChange: func(status string) {
 			s.SendMessage(NexusMessage{
@@ -1396,8 +1576,8 @@ func (s *TazherApp) ShowMainWindow() {
 				Body:   status,
 			})
 		},
-		OnSearch:    s.handleSearch,
-		OnSettings:  s.showSettingsWindow,
+		OnSearch:   s.handleSearch,
+		OnSettings: s.showSettingsWindow,
 	})
 	s.HomeView = s.CreateHomeView()
 	s.ContentStack = container.NewStack(s.HomeView)
@@ -1409,7 +1589,7 @@ func (s *TazherApp) ShowMainWindow() {
 			s.ContentStack.Refresh()
 		}),
 		layout.NewSpacer(),
-		widget.NewLabel("Tazher Credit: $0.00"),
+		widget.NewLabel("Phaze Credit: $0.00"),
 		widget.NewButton("Add Credit", s.ShowBuyCreditDialog),
 	)
 
@@ -1425,30 +1605,30 @@ func (s *TazherApp) ShowMainWindow() {
 	s.MainWindow.Show()
 }
 
-func (s *TazherApp) rebuildSidebar() {
+func (s *PhazeApp) rebuildSidebar() {
 	if s.MainSplit == nil {
 		return
 	}
-	s.Sidebar = ui.NewTazherSidebar(ui.SidebarProps{
-		Username:    s.Username,
-		Status:      "Online",
-		AvatarPath:  s.AvatarPath,
-		Slicer:      s.Slicer,
-		OnChatOpen:  s.handleChatOpen,
+	s.Sidebar = ui.NewPhazeSidebar(ui.SidebarProps{
+		Username:     s.Username,
+		Status:       "Online",
+		AvatarPath:   s.AvatarPath,
+		Slicer:       s.Slicer,
+		OnChatOpen:   s.handleChatOpen,
 		OnChatWindow: s.handleChatWindowOpen,
-		OnAddFriend: s.showAddContactDialog,
-		OnNewGroup:  s.showNewGroupDialog,
-		RecentChats: s.Friends,
-		OnProfile:   s.ShowMyProfileWindow,
-		CompactMode: s.CompactMode,
+		OnAddFriend:  s.showAddContactDialog,
+		OnNewGroup:   s.showNewGroupDialog,
+		RecentChats:  s.Friends,
+		OnProfile:    s.ShowMyProfileWindow,
+		CompactMode:  s.CompactMode,
 		OnDialCall: func(number string) {
-			s.playSound("CallOutgoing.wav")
+			s.PlaySound("CallOutgoing.wav")
 			s.SendMessage(NexusMessage{
 				Type:   "pstn_call",
 				Sender: s.Username,
 				Body:   number,
 			})
-			dialog.ShowInformation("TAZHER PSTN", "Calling "+number+"...", s.MainWindow)
+			dialog.ShowInformation("Phaze PSTN", "Calling "+number+"...", s.MainWindow)
 		},
 		OnStatusChange: func(status string) {
 			s.SendMessage(NexusMessage{
@@ -1457,8 +1637,8 @@ func (s *TazherApp) rebuildSidebar() {
 				Body:   status,
 			})
 		},
-		OnSearch:    s.handleSearch,
-		OnSettings:  s.showSettingsWindow,
+		OnSearch:   s.handleSearch,
+		OnSettings: s.showSettingsWindow,
 	})
 	s.MainSplit.Leading = s.Sidebar
 	s.MainSplit.Refresh()
@@ -1469,12 +1649,12 @@ type RecentChat struct {
 	LastMsg string
 }
 
-func (s *TazherApp) loadRecentChats() []ui.FriendInfo {
-	// Add the TAZHER Echo Service if not present
+func (s *PhazeApp) loadRecentChats() []ui.FriendInfo {
+	// Add the Phaze Echo Service if not present
 	chats := []ui.FriendInfo{
 		{Username: "Echo / Sound Test Service", Status: "Online", DisplayName: "Echo / Sound Test Service"},
 	}
-	
+
 	rows, err := s.DB.Query(`
 		SELECT chatname FROM Messages
 		WHERE id IN (SELECT MAX(id) FROM Messages GROUP BY chatname)
@@ -1506,8 +1686,8 @@ func (s *TazherApp) loadRecentChats() []ui.FriendInfo {
 	return chats
 }
 
-func (s *TazherApp) setupMenu(win fyne.Window) {
-	tazherMenu := fyne.NewMenu("TAZHER™",
+func (s *PhazeApp) setupMenu(win fyne.Window) {
+	phazeMenu := fyne.NewMenu("Phaze™",
 		fyne.NewMenuItem("Online Status", nil),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Privacy...", func() {}),
@@ -1539,22 +1719,20 @@ func (s *TazherApp) setupMenu(win fyne.Window) {
 	helpMenu := fyne.NewMenu("Help",
 		fyne.NewMenuItem("Check for Updates", func() {}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("About Tazher™", s.showAboutDialog),
+		fyne.NewMenuItem("About Phaze™", s.showAboutDialog),
 	)
 
 	toolsMenu := fyne.NewMenu("Tools",
 		fyne.NewMenuItem("Options...", s.showSettingsWindow),
 	)
 
-	win.SetMainMenu(fyne.NewMainMenu(tazherMenu, contactsMenu, viewMenu, toolsMenu, helpMenu))
+	win.SetMainMenu(fyne.NewMainMenu(phazeMenu, contactsMenu, viewMenu, toolsMenu, helpMenu))
 }
-
-
 
 // ---------- Options Window ----------
 
-func (s *TazherApp) ShowOptionsWindow() {
-	win := s.App.NewWindow("Tazher™ - Options")
+func (s *PhazeApp) ShowOptionsWindow() {
+	win := s.App.NewWindow("Phaze™ - Options")
 	win.Resize(fyne.NewSize(700, 500))
 
 	categories := []string{"General", "Privacy", "Notifications", "Audio & Video", "Advanced"}
@@ -1593,7 +1771,7 @@ func (s *TazherApp) ShowOptionsWindow() {
 		case "Audio & Video":
 			preview := ui.NewVideoPreview(320, 240)
 			preview.Start()
-			
+
 			contentArea.Objects = []fyne.CanvasObject{
 				container.NewVBox(
 					widget.NewLabelWithStyle("Audio Settings", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -1692,23 +1870,23 @@ func (s *TazherApp) ShowOptionsWindow() {
 
 // ---------- Login & Registration ----------
 
-func (s *TazherApp) ShowLoginWindow() {
-	win := s.App.NewWindow("Tazher™ - Sign In")
+func (s *PhazeApp) ShowLoginWindow() {
+	win := s.App.NewWindow("Phaze™ - Sign In")
 	win.Resize(fyne.NewSize(400, 600))
 	win.SetFixedSize(true)
 
-	logo := canvas.NewImageFromFile("assets/tazher_logo.png")
+	logo := canvas.NewImageFromFile(ui.ResolveAsset("assets/phaze_logo.png"))
 	logo.FillMode = canvas.ImageFillContain
 	logo.SetMinSize(fyne.NewSize(200, 100))
 
 	usernameEntry := widget.NewEntry()
-	usernameEntry.SetPlaceHolder("Tazher Name")
+	usernameEntry.SetPlaceHolder("Phaze Name")
 
 	passwordEntry := widget.NewPasswordEntry()
 	passwordEntry.SetPlaceHolder("Password")
 
 	serverEntry := widget.NewEntry()
-	serverEntry.SetText("wss://tazher7-reborn.fly.dev/cable")
+	serverEntry.SetText("wss://phazechat.world/ws")
 
 	// Load saved credentials
 	var savedUser, savedServer string
@@ -1753,7 +1931,7 @@ func (s *TazherApp) ShowLoginWindow() {
 		s.Username = usernameEntry.Text
 		pass := passwordEntry.Text
 
-		statusLabel.SetText("Connecting to Tazher...")
+		statusLabel.SetText("Connecting to Phaze...")
 		statusLabel.Show()
 
 		err := s.ConnectToServer(pass)
@@ -1781,7 +1959,7 @@ func (s *TazherApp) ShowLoginWindow() {
 	win.SetContent(container.NewCenter(
 		container.NewVBox(
 			container.NewCenter(logo),
-			widget.NewLabelWithStyle("Tazher: Private & Safe", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Phaze: Private & Safe", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Don't stop til you've had enough", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
 			widget.NewLabel("Sign in to your account"),
 			container.NewPadded(usernameEntry),
@@ -1796,13 +1974,13 @@ func (s *TazherApp) ShowLoginWindow() {
 	win.Show()
 }
 
-func (s *TazherApp) showRegistrationWindow(serverAddr string) {
+func (s *PhazeApp) showRegistrationWindow(serverAddr string) {
 	win := s.App.NewWindow("Create Account")
 	win.Resize(fyne.NewSize(400, 400))
 	win.SetFixedSize(true)
 
 	usernameEntry := widget.NewEntry()
-	usernameEntry.SetPlaceHolder("Choose a Tazher name")
+	usernameEntry.SetPlaceHolder("Choose a Phaze name")
 
 	emailEntry := widget.NewEntry()
 	emailEntry.SetPlaceHolder("Email address")
@@ -1830,11 +2008,11 @@ func (s *TazherApp) showRegistrationWindow(serverAddr string) {
 			statusLabel.Show()
 			return
 		}
-		
+
 		// Use the currently configured server address
 		addr := s.ServerAddress
 		if addr == "" {
-			addr = "ws://localhost:8080/cable" // Default to local if unset
+			addr = "ws://localhost:8080/ws" // Default to local if unset
 		}
 
 		c, _, err := websocket.DefaultDialer.Dial(addr, nil)
@@ -1859,7 +2037,7 @@ func (s *TazherApp) showRegistrationWindow(serverAddr string) {
 		if result.Status == "pending_verification" {
 			s.showEmailVerificationDialog(usernameEntry.Text, win)
 		} else if result.Error != "" {
-			dialog.ShowError(fmt.Errorf(result.Error), win)
+			dialog.ShowError(fmt.Errorf("%s", result.Error), win)
 		} else {
 			dialog.ShowInformation("Registration Success", "Account created! You can now sign in.", win)
 			win.Close()
@@ -1883,67 +2061,36 @@ func (s *TazherApp) showRegistrationWindow(serverAddr string) {
 // ---------- Main ----------
 
 func main() {
-	tazher := NewTazherApp()
-	tazher.App.Settings().SetTheme(&ui.Tazher7Theme{})
+	phaze := NewPhazeApp()
+	phaze.App.Settings().SetTheme(&ui.Phaze7Theme{})
 
 	// Load saved avatar + settings
 	var savedAvatar string
-	tazher.DB.QueryRow("SELECT value FROM Profile WHERE key = 'avatar'").Scan(&savedAvatar)
+	phaze.DB.QueryRow("SELECT value FROM Profile WHERE key = 'avatar'").Scan(&savedAvatar)
 	if savedAvatar != "" {
-		tazher.AvatarPath = savedAvatar
+		phaze.AvatarPath = savedAvatar
 	}
 	var soundVal string
-	tazher.DB.QueryRow("SELECT value FROM Profile WHERE key = 'notify_sounds'").Scan(&soundVal)
+	phaze.DB.QueryRow("SELECT value FROM Profile WHERE key = 'notify_sounds'").Scan(&soundVal)
 	if soundVal == "0" {
-		tazher.SoundEnabled = false
+		phaze.SoundEnabled = false
 	}
 	var compactVal string
-	tazher.DB.QueryRow("SELECT value FROM Profile WHERE key = 'compact_mode'").Scan(&compactVal)
+	phaze.DB.QueryRow("SELECT value FROM Profile WHERE key = 'compact_mode'").Scan(&compactVal)
 	if compactVal == "1" {
-		tazher.CompactMode = true
+		phaze.CompactMode = true
 	}
 
-	tazher.ShowLoginWindow()
-	tazher.App.Run()
+	phaze.ShowLoginWindow()
+	phaze.App.Run()
 }
 
-func (s *TazherApp) CheckForUpdates() {
-	// 1. Check Nexus for latest version
-	go func() {
-		// ALWAYS attempt to check the Production Master for updates.
-		productionURL := "https://tazher7-reborn.fly.dev/version"
-		
-		resp, err := http.Get(productionURL)
-		if err != nil {
-			// Fallback to currently connected server address if production is out
-			u := strings.Replace(s.ServerAddress, "ws", "http", 1)
-			u = strings.TrimSuffix(u, "/cable") + "/version"
-			resp, err = http.Get(u)
-		}
-
-		if err == nil {
-			var latest struct {
-				Version string `json:"version"`
-				URL     string `json:"url"`
-			}
-			json.NewDecoder(resp.Body).Decode(&latest)
-			if latest.Version != "" && latest.Version != Version {
-				log.Printf("[Update] New version available: %s", latest.Version)
-				if s.MainWindow != nil {
-					s.App.SendNotification(fyne.NewNotification("Tazher Update", "A new version ("+latest.Version+") is available!"))
-				}
-			}
-			resp.Body.Close()
-		}
-	}()
-}
-
-func (s *TazherApp) showEmailVerificationDialog(username string, parent fyne.Window) {
+func (s *PhazeApp) showEmailVerificationDialog(username string, parent fyne.Window) {
 	codeEntry := widget.NewEntry()
 	codeEntry.SetPlaceHolder("6-digit code")
 
 	d := dialog.NewCustomConfirm("Verify Email", "Verify", "Cancel", container.NewVBox(
-		widget.NewLabel("We sent a code to your email. Enter it below to activate your Tazher identity:"),
+		widget.NewLabel("We sent a code to your email. Enter it below to activate your Phaze identity:"),
 		codeEntry,
 	), func(ok bool) {
 		if ok {
@@ -1952,15 +2099,14 @@ func (s *TazherApp) showEmailVerificationDialog(username string, parent fyne.Win
 				Sender: username,
 				Body:   codeEntry.Text,
 			})
-			dialog.ShowInformation("Tazher", "Activation code submitted. You can now try logging in.", parent)
+			dialog.ShowInformation("Phaze", "Activation code submitted. You can now try logging in.", parent)
 			parent.Close()
 		}
 	}, parent)
 	d.Show()
 }
 
-
-func (s *TazherApp) handleChatOpen(name string) {
+func (s *PhazeApp) handleChatOpen(name string) {
 	if name == "Echo / Sound Test Service" {
 		s.showEchoCallDialog()
 		return
@@ -1971,7 +2117,7 @@ func (s *TazherApp) handleChatOpen(name string) {
 	s.ContentStack.Refresh()
 }
 
-func (s *TazherApp) handleChatWindowOpen(name string) {
+func (s *PhazeApp) handleChatWindowOpen(name string) {
 	if win, ok := s.OpenWindows[name]; ok {
 		win.RequestFocus()
 		return
@@ -1987,15 +2133,15 @@ func (s *TazherApp) handleChatWindowOpen(name string) {
 	})
 }
 
-func (s *TazherApp) showEchoCallDialog() {
-	win := s.App.NewWindow("TAZHER Echo Service")
+func (s *PhazeApp) showEchoCallDialog() {
+	win := s.App.NewWindow("Phaze Echo Service")
 	win.Resize(fyne.NewSize(350, 450))
-	
-	lbl := widget.NewLabelWithStyle("Welcome to the Tazher Echo Sound Test Service.", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+
+	lbl := widget.NewLabelWithStyle("Welcome to the Phaze Echo Sound Test Service.", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	status := widget.NewLabel("Connected...")
-	
+
 	avatar := ui.NewAvatarWithStatus(120, "Online", "")
-	
+
 	content := container.NewVBox(
 		layout.NewSpacer(),
 		container.NewCenter(avatar),
@@ -2004,29 +2150,29 @@ func (s *TazherApp) showEchoCallDialog() {
 		layout.NewSpacer(),
 		widget.NewButtonWithIcon("End Call", theme.CancelIcon(), func() { win.Close() }),
 	)
-	
+
 	win.SetContent(container.NewStack(canvas.NewRectangle(color.White), container.NewPadded(content)))
 	win.Show()
-	
+
 	go func() {
-		s.playSound("EchoGreeting.wav")
+		s.PlaySound("EchoGreeting.wav")
 		time.Sleep(5 * time.Second)
 		status.SetText("Recording: 10s remaining...")
-		s.playSound("Beep.wav")
+		s.PlaySound("Beep.wav")
 		time.Sleep(10 * time.Second)
-		s.playSound("Beep.wav")
+		s.PlaySound("Beep.wav")
 		status.SetText("Playing back your message...")
 		time.Sleep(5 * time.Second)
 		win.Close()
 	}()
 }
 
-func (s *TazherApp) ShowMyProfileWindow() {
+func (s *PhazeApp) ShowMyProfileWindow() {
 	if win, ok := s.OpenWindows["profile_me"]; ok {
 		win.RequestFocus()
 		return
 	}
-	
+
 	win := s.App.NewWindow("Profile: " + s.Username)
 	win.Resize(fyne.NewSize(400, 500))
 	s.OpenWindows["profile_me"] = win
@@ -2054,7 +2200,7 @@ func (s *TazherApp) ShowMyProfileWindow() {
 			s.SendMessage(NexusMessage{
 				Type:   "status_update",
 				Sender: s.Username,
-				Body:   newMood, // In Tazher, mood is sent via status_update Body
+				Body:   newMood, // In Phaze, mood is sent via status_update Body
 			})
 			s.rebuildSidebar()
 			win.Close()
@@ -2069,12 +2215,12 @@ func (s *TazherApp) ShowMyProfileWindow() {
 	win.Show()
 }
 
-func (s *TazherApp) showSettingsWindow() {
+func (s *PhazeApp) showSettingsWindow() {
 	if win, ok := s.OpenWindows["settings"]; ok {
 		win.RequestFocus()
 		return
 	}
-	
+
 	win := s.App.NewWindow("Options")
 	win.Resize(fyne.NewSize(500, 400))
 	s.OpenWindows["settings"] = win
@@ -2101,29 +2247,31 @@ func (s *TazherApp) showSettingsWindow() {
 	win.Show()
 }
 
-func (s *TazherApp) showAboutDialog() {
-	win := s.App.NewWindow("About Tazher™")
+func (s *PhazeApp) showAboutDialog() {
+	win := s.App.NewWindow("About Phaze™")
 	win.Resize(fyne.NewSize(350, 400))
 	win.SetFixedSize(true)
 
-	logo := canvas.NewImageFromFile("assets/tazher_logo.png")
+	logo := canvas.NewImageFromFile(ui.ResolveAsset("assets/phaze_logo.png"))
 	logo.SetMinSize(fyne.NewSize(150, 75))
 	logo.FillMode = canvas.ImageFillContain
 
 	credits := widget.NewRichTextFromMarkdown(`
-# Tazher™ 7.41 Reborn
+# Phaze™ 7.41 Reborn
 **Version:** 1.0.0-Forensic (Mesh-Ready)
 
 **The Team:**
 * MJ (Lead Forensic Engineer)
 * Antigravity (Sovereign AI Architect)
 
+**Official Site:** [phaze.world](https://phaze.world)
+
 **Special Thanks:**
 * The Gophers of the Mesh
 * Original Skype 7.41 Engineering Team (2014)
 
 ---
-*TAZHER is a sovereign, bit-perfect reconstruction. Not affiliated with Microsoft Corporation.*
+*Phaze is a sovereign, bit-perfect reconstruction. Not affiliated with Microsoft Corporation.*
 `)
 	credits.Wrapping = fyne.TextWrapWord
 
@@ -2135,15 +2283,15 @@ func (s *TazherApp) showAboutDialog() {
 	win.Show()
 }
 
-func (s *TazherApp) setupTray() {
+func (s *PhazeApp) setupTray() {
 	if desk, ok := s.App.(desktop.App); ok {
-		m := fyne.NewMenu("Tazher",
+		m := fyne.NewMenu("Phaze",
 			fyne.NewMenuItem("Online", func() { s.updateStatus("Online") }),
 			fyne.NewMenuItem("Away", func() { s.updateStatus("Away") }),
 			fyne.NewMenuItem("Do Not Disturb", func() { s.updateStatus("Do Not Disturb") }),
 			fyne.NewMenuItem("Invisible", func() { s.updateStatus("Invisible") }),
 			fyne.NewMenuItemSeparator(),
-			fyne.NewMenuItem("Open Tazher", func() { s.MainWindow.Show() }),
+			fyne.NewMenuItem("Open Phaze", func() { s.MainWindow.Show() }),
 			fyne.NewMenuItem("Quit", func() { s.App.Quit() }),
 		)
 		desk.SetSystemTrayMenu(m)
@@ -2152,15 +2300,15 @@ func (s *TazherApp) setupTray() {
 	}
 }
 
-func (s *TazherApp) updateStatus(status string) {
+func (s *PhazeApp) updateStatus(status string) {
 	s.Status = status
 	s.SendMessage(NexusMessage{Type: "status_update", Sender: s.Username, Body: status})
-	
+
 	// Forensic Tray Sync
 	if _, ok := s.App.(desktop.App); ok {
-		s.App.SendNotification(fyne.NewNotification("Tazher", "Status changed to "+status))
+		s.App.SendNotification(fyne.NewNotification("Phaze", "Status changed to "+status))
 	}
-	
+
 	if s.Sidebar != nil {
 		s.Sidebar.Refresh()
 	}

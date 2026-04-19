@@ -16,7 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 )
 
-const ProtocolID = "/tazher/signal/1.0.0"
+const ProtocolID = "/phaze/signal/1.0.0"
 
 type SignalHandler func(data []byte)
 
@@ -37,13 +37,13 @@ type P2PManager struct {
 	Username string
 	Peers    map[string]peer.ID
 	Mu       sync.RWMutex
+
+	announceTicker *time.Ticker
 }
 
 func NewP2PManager(username string) (*P2PManager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create a libp2p host
-	// Using a random port for now, or fixed if needed
 	h, err := libp2p.New(
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
 		libp2p.EnableRelay(),
@@ -53,7 +53,6 @@ func NewP2PManager(username string) (*P2PManager, error) {
 		return nil, err
 	}
 
-	// Initialize the DHT
 	kademliaDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
 	if err != nil {
 		cancel()
@@ -65,11 +64,26 @@ func NewP2PManager(username string) (*P2PManager, error) {
 		return nil, err
 	}
 
-	// Bootstrap with some public nodes if available, otherwise we rely on local discovery
-	// For Tazher, we might want to hardcode some Nexus bootstrap nodes later.
+	var wg sync.WaitGroup
+	for _, pi := range dht.DefaultBootstrapPeers {
+		info, err := peer.AddrInfoFromP2pAddr(pi)
+		if err != nil {
+			continue
+		}
+		wg.Add(1)
+		go func(pi peer.AddrInfo) {
+			defer wg.Done()
+			cctx, ccancel := context.WithTimeout(ctx, 15*time.Second)
+			defer ccancel()
+			h.Peerstore().AddAddrs(pi.ID, pi.Addrs, time.Hour)
+			if err := h.Connect(cctx, pi); err == nil {
+				log.Printf("[P2P] Bootstrap connected to %s", pi.ID)
+			}
+		}(*info)
+	}
+	go func() { wg.Wait() }()
 
-	// Initialize mDNS discovery
-	ser := mdns.NewMdnsService(h, "tazher-mesh", &mdnsNotifee{h: h})
+	ser := mdns.NewMdnsService(h, "phaze-mesh", &mdnsNotifee{h: h})
 	if err := ser.Start(); err != nil {
 		log.Printf("[P2P] mDNS start error: %v", err)
 	}
@@ -92,13 +106,14 @@ func NewP2PManager(username string) (*P2PManager, error) {
 }
 
 func (p *P2PManager) Announce() {
-	ticker := time.NewTicker(5 * time.Minute)
+	p.announceTicker = time.NewTicker(5 * time.Minute)
 	go func() {
+		defer p.announceTicker.Stop()
 		for {
 			select {
 			case <-p.Ctx.Done():
 				return
-			case <-ticker.C:
+			case <-p.announceTicker.C:
 				p.announceSelf()
 			}
 		}
@@ -107,8 +122,8 @@ func (p *P2PManager) Announce() {
 }
 
 func (p *P2PManager) announceSelf() {
-	// We use the DHT to provide a service name "tazher-user:<username>"
-	serviceName := fmt.Sprintf("tazher-user:%s", p.Username)
+	// We use the DHT to provide a service name "phaze-user:<username>"
+	serviceName := fmt.Sprintf("phaze-user:%s", p.Username)
 	routingDiscovery := routing.NewRoutingDiscovery(p.DHT)
 	_, err := routingDiscovery.Advertise(p.Ctx, serviceName)
 	if err != nil {
@@ -119,9 +134,9 @@ func (p *P2PManager) announceSelf() {
 }
 
 func (p *P2PManager) DiscoverPeer(username string) (peer.AddrInfo, error) {
-	serviceName := fmt.Sprintf("tazher-user:%s", username)
+	serviceName := fmt.Sprintf("phaze-user:%s", username)
 	routingDiscovery := routing.NewRoutingDiscovery(p.DHT)
-	
+
 	ctx, cancel := context.WithTimeout(p.Ctx, 10*time.Second)
 	defer cancel()
 

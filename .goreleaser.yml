@@ -1,6 +1,6 @@
 version: 2
 
-project_name: tazher-reborn
+project_name: phazechat
 
 # No root go.mod — we're a workspace. Run tidy in each module instead.
 before:
@@ -9,10 +9,10 @@ before:
     - bash -c "cd nexus_server  && go mod tidy"
 
 builds:
-  - id: tazher
+  - id: phaze
     main: ./native_client
     dir: .
-    binary: tazher
+    binary: phaze
     env:
       - CGO_ENABLED=1
     goos: [linux, windows, darwin]
@@ -20,10 +20,10 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-  - id: tazher-nexus
+  - id: phaze-nexus
     main: ./nexus_server
     dir: .
-    binary: tazher-nexus
+    binary: phaze-nexus
     env:
       - CGO_ENABLED=0
     goos: [linux, windows, darwin]
@@ -72,5 +72,5 @@ release:
     TAZHER: Sovereign P2P Communication Engine.
     
     This release includes the TAZHER Client and the Nexus Relay Server.
-    - **tazher**: The native-compiled communication client.
-    - **tazher-nexus**: The edge relay server for central distribution and mesh stats.
+    - **phaze**: The native-compiled communication client.
+    - **phaze-nexus**: The edge relay server for central distribution and mesh stats.

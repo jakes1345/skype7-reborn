@@ -38,6 +38,7 @@ nexus_server/tazher-nexus
 # Raw Assets (Sovereign Lockdown): unencrypted source assets stay local.
 native_client/assets/
 assets_sovereign_backup/
+research_files/
 
 # Keep the encrypted vault in the tree.
 !native_client/assets.vault

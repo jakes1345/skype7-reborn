@@ -9,14 +9,14 @@ import (
 	"fyne.io/fyne/v2/container"
 )
 
-// TazherPulsar is the forensic three-dot typing animation from Skype 7.
-type TazherPulsar struct {
+// PhazePulsar is the forensic three-dot typing animation from Skype 7.
+type PhazePulsar struct {
 	Container *fyne.Container
 	dots      [3]*canvas.Circle
 	stop      chan struct{}
 }
 
-func NewTazherPulsar() *TazherPulsar {
+func NewPhazePulsar() *PhazePulsar {
 	dotColor := color.NRGBA{R: 180, G: 180, B: 180, A: 255}
 	var dots [3]*canvas.Circle
 	for i := range dots {
@@ -24,7 +24,7 @@ func NewTazherPulsar() *TazherPulsar {
 		dots[i].Resize(fyne.NewSize(6, 6))
 	}
 
-	p := &TazherPulsar{
+	p := &PhazePulsar{
 		dots:      dots,
 		stop:      make(chan struct{}),
 		Container: container.NewHBox(dots[0], dots[1], dots[2]),
@@ -34,7 +34,7 @@ func NewTazherPulsar() *TazherPulsar {
 	return p
 }
 
-func (p *TazherPulsar) Start() {
+func (p *PhazePulsar) Start() {
 	p.Container.Show()
 	go func() {
 		ticker := time.NewTicker(400 * time.Millisecond)
@@ -59,7 +59,7 @@ func (p *TazherPulsar) Start() {
 	}()
 }
 
-func (p *TazherPulsar) Stop() {
+func (p *PhazePulsar) Stop() {
 	select {
 	case p.stop <- struct{}{}:
 	default:

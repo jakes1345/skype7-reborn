@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// Map of Tazher 7 emoticon tokens → asset filename (relative to assets/).
+// Map of Phaze 7 emoticon tokens → asset filename (relative to assets/).
 // Covers the classic full set. Missing assets fall back to the literal text.
 var emoticonMap = map[string]string{
 	"(smile)":      "emoticon_smile.png",
@@ -91,7 +91,7 @@ var emoticonMap = map[string]string{
 	"(bug)":        "emoticon_bug.png",
 	"(drunk)":      "emoticon_drunk.png",
 	"(bandit)":     "emoticon_bandit.png",
-	"(tazher)":      "tazher_logo_small.png",
+	"(phaze)":      "phaze_logo_small.png",
 	"(tmi)":        "emoticon_tmi.png",
 	"(fubar)":      "emoticon_fubar.png",
 }
@@ -145,7 +145,7 @@ func parseRichText(text string, slicer *AeroSlicer) []fyne.CanvasObject {
 func NewMessageBubble(author, text string, isMe bool, slicer *AeroSlicer) fyne.CanvasObject {
 	var bg fyne.CanvasObject
 	if isMe {
-		// Tazher Premium Blue Gradient
+		// Phaze Premium Blue Gradient
 		top := color.NRGBA{R: 225, G: 245, B: 255, A: 255}
 		bottom := color.NRGBA{R: 210, G: 235, B: 250, A: 255}
 		grad := canvas.NewLinearGradient(top, bottom, 90) // Vertical

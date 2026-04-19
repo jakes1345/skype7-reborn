@@ -38,7 +38,7 @@ type SidebarProps struct {
 	CompactMode    bool
 }
 
-func NewTazherSidebar(props SidebarProps) fyne.CanvasObject {
+func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
 	// 1. Profile Area
 	avatarSize := float32(48)
 	if props.CompactMode {
@@ -65,7 +65,7 @@ func NewTazherSidebar(props SidebarProps) fyne.CanvasObject {
 		rightContent,
 	)
 
-	profileBg := canvas.NewRectangle(color.NRGBA{R: 0, G: 175, B: 240, A: 255}) // Tazher Blue
+	profileBg := canvas.NewRectangle(color.NRGBA{R: 0, G: 175, B: 240, A: 255}) // Phaze Blue
 	profileContainer := container.NewStack(profileBg, container.NewPadded(profileHeader))
 	
 	// Use Border to keep header at top without stretching
@@ -134,7 +134,7 @@ func NewTazherSidebar(props SidebarProps) fyne.CanvasObject {
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Recent", list),
 		container.NewTabItem("Contacts", widget.NewLabel("Global Mesh Directory")),
-		container.NewTabItem("Dial", NewTazherDialpad(DialpadProps{OnCall: props.OnDialCall})),
+		container.NewTabItem("Dial", NewPhazeDialpad(DialpadProps{OnCall: props.OnDialCall})),
 	)
 
 	sidebarContent := container.NewBorder(

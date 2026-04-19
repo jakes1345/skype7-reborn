@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<qs qid="104"> 
+  <q token="101"><ql uri="skype:?cqg&amp;target=audio.nolocal&amp;ui_entrypoint=cqf" en="I could not hear any sound" />AUDIO_TOKEN_NO_SOUND_LOCAL</q> 
+  <q token="102"><ql uri="skype:?cqg&amp;target=audio.noremote&amp;ui_entrypoint=cqf" en="The other side could not hear any sound" />AUDIO_TOKEN_NO_SOUND_REMOTE</q> 
+  <q token="103"><ql uri="skype:?cqg&amp;target=audio.quality.echo&amp;ui_entrypoint=cqf" en="I heard echo in the call" />AUDIO_TOKEN_ECHO</q> 
+  <q token="104"><ql uri="skype:?cqg&amp;target=audio.quality.noise&amp;ui_entrypoint=cqf" en="I heard noise in the call" />AUDIO_TOKEN_NOISE</q> 
+  <q token="105"><ql uri="skype:?cqg&amp;target=audio.quality.volume&amp;ui_entrypoint=cqf" en="Volume was low" />AUDIO_TOKEN_LOW_SOUND</q> 
+  <q token="106"><ql uri="skype:?cqg&amp;target=audio.dropped&amp;ui_entrypoint=cqf" en="The call ended unexpectedly" />AUDIO_TOKEN_DROPPED</q> 
+  <q token="107"><ql uri="skype:?cqg&amp;target=audio.quality.distorted&amp;ui_entrypoint=cqf" en="Speech was not natural or sounded distorted" />AUDIO_TOKEN_DISTORTED</q> 
+  <q token="108"><ql uri="skype:?cqg&amp;target=audio.quality.delay&amp;ui_entrypoint=cqf" en="We kept interrupting each other" />AUDIO_TOKEN_INTERRUPTED</q> 
+  <qe token="109" editlength="100"><ql uri="skype:?cqg&amp;target=audio.other&amp;ui_entrypoint=cqf" en="Other, please specify" />AUDIO_TOKEN_OTHER</qe> 
+  <pq token="301"><ql uri="skype:?cqg&amp;target=audio.quality.dialpad&amp;ui_entrypoint=cqf" en="Dial pad tones did not work" />AUDIO_TOKEN_PSTN_DIALPAD</pq> 
+  <vq token="201"><ql uri="skype:?cqg&amp;target=video.nolocal&amp;ui_entrypoint=cqf" en="I could not see any video" />VIDEO_TOKEN_NO_VIDEO_LOCAL</vq> 
+  <vq token="202"><ql uri="skype:?cqg&amp;target=video.noremote&amp;ui_entrypoint=cqf" en="The other side could not see my video" />VIDEO_TOKEN_NO_VIDEO_REMOTE</vq> 
+  <vq token="203"><ql uri="skype:?cqg&amp;target=video.quality.poor&amp;ui_entrypoint=cqf" en="Image quality was poor" />VIDEO_TOKEN_LOW_QUALITY</vq> 
+  <vq token="204"><ql uri="skype:?cqg&amp;target=video.quality.freezing&amp;ui_entrypoint=cqf" en="Video kept freezing" />VIDEO_TOKEN_FREEZING</vq> 
+  <vq token="205"><ql uri="skype:?cqg&amp;target=video.dropped&amp;ui_entrypoint=cqf" en="Video stopped unexpectedly" />VIDEO_TOKEN_STOPPED_UNEXPECTEDLY</vq> 
+  <vq token="206"><ql uri="skype:?cqg&amp;target=video.quality.dark&amp;ui_entrypoint=cqf" en="The other side was too dark" />VIDEO_TOKEN_OTHER_SIDE_TOO_DARK</vq> 
+  <vq token="207"><ql uri="skype:?cqg&amp;target=video.quality.sync&amp;ui_entrypoint=cqf" en="Video was ahead or behind audio" />VIDEO_TOKEN_NO_AUDIO_SYNC</vq> 
+  <vqe token="208" editlength="100"><ql uri="skype:?cqg&amp;target=video.other&amp;ui_entrypoint=cqf" en="Other, please specify" />VIDEO_TOKEN_OTHER</vqe> 
+  <so>101 102 103 104 105 106 107 108 301 109 201 202 203 204 205 206 207 208</so> 
+</qs> 

@@ -1,0 +1,154 @@
+/* Phaze Classic Style — Inspired by Skype 7 (2014 era) */
+
+:root {
+    --skype-blue: #00AFF0;
+    --skype-dark: #0078D4;
+    --skype-darker: #005A9E;
+    --text-dark: #333;
+    --text-light: #666;
+    --text-white: #fff;
+    --bg-light: #f5f5f5;
+    --bg-white: #ffffff;
+    --section-alt: #f0f8ff;
+    --border: #e8e8e8;
+    --shadow: 0 2px 20px rgba(0,0,0,0.08);
+    --shadow-lg: 0 10px 40px rgba(0,0,0,0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--text-dark);
+    line-height: 1.6;
+    background: var(--bg-white);
+    -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--skype-blue); text-decoration: none; transition: 0.2s; }
+a:hover { text-decoration: underline; }
+
+.container {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* ── Top Bar ── */
+.topbar {
+    background: #1a1a1a;
+    padding: 6px 0;
+    font-size: 0.75rem;
+    color: #999;
+}
+.topbar .container {
+    display: flex;
+    justify-content: flex-end;
+    gap: 20px;
+}
+.topbar a { color: #bbb; }
+.topbar a:hover { color: #fff; text-decoration: none; }
+
+/* ── Navbar ── */
+.navbar {
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.navbar .container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+}
+.nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--skype-blue);
+}
+.nav-brand:hover { text-decoration: none; }
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    list-style: none;
+    height: 100%;
+}
+.nav-links li { height: 100%; }
+.nav-links a {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 18px;
+    color: var(--text-dark);
+    font-size: 0.9rem;
+    border-bottom: 3px solid transparent;
+}
+.nav-links a:hover {
+    color: var(--skype-blue);
+    border-bottom-color: var(--skype-blue);
+    text-decoration: none;
+    background: #f8f8f8;
+}
+.nav-links a.active {
+    color: var(--skype-blue);
+    border-bottom-color: var(--skype-blue);
+}
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.nav-get-btn {
+    background: var(--skype-blue);
+    color: #fff !important;
+    padding: 8px 24px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.nav-get-btn:hover { background: var(--skype-dark); text-decoration: none; }
+
+/* ── Footer ── */
+.footer {
+    background: #1a1a1a;
+    color: #999;
+    padding: 50px 0 30px;
+}
+.footer-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 40px;
+    margin-bottom: 40px;
+}
+.footer-col h4 {
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.footer-col ul { list-style: none; }
+.footer-col li { margin-bottom: 8px; }
+.footer-col a { color: #999; font-size: 0.85rem; }
+.footer-col a:hover { color: #fff; text-decoration: none; }
+.footer-bottom {
+    border-top: 1px solid #333;
+    padding-top: 20px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+    .nav-links { display: none; }
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+}

@@ -27,7 +27,7 @@ func main() {
 	reg := NexusMessage{
 		Type:   "register",
 		Sender: "tester",
-		Email:  "tester@tazher.com",
+		Email:  "tester@phaze.com",
 		Body:   "secure123",
 	}
 	conn.WriteJSON(reg)

@@ -10,7 +10,7 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-// Real-time audio I/O for Tazher calls.
+// Real-time audio I/O for Phaze calls.
 //
 // Codec: PCMU (G.711 µ-law), 8 kHz, mono. Pure Go, no cgo.
 // Mic: PulseAudio capture @ 8 kHz s16le mono.
@@ -88,7 +88,7 @@ var (
 func getPulse() (*pulse.Client, error) {
 	pulseOnce.Do(func() {
 		pulseClient, pulseErr = pulse.NewClient(
-			pulse.ClientApplicationName("Private Tazher"),
+			pulse.ClientApplicationName("Private Phaze"),
 		)
 	})
 	return pulseClient, pulseErr
@@ -309,3 +309,27 @@ func drainRemote(peerName string, track *webrtc.TrackRemote) {
 
 // unused helper to silence go vet about binary import when pion rtp is in play
 var _ = binary.BigEndian
+
+// ---------- Remote: Video frames ----------
+
+type VideoFrameHandler func(peerName string, frame []byte, width, height int)
+
+var remoteVideoHandler VideoFrameHandler
+
+func SetRemoteVideoHandler(h VideoFrameHandler) {
+	remoteVideoHandler = h
+}
+
+func DrainRemoteVideo(peerName string, track *webrtc.TrackRemote) {
+	log.Printf("[Video] Starting video drain for %s, codec: %s", peerName, track.Codec().MimeType)
+	for {
+		pkt, _, err := track.ReadRTP()
+		if err != nil {
+			log.Printf("[Video] %s track closed: %v", peerName, err)
+			return
+		}
+		if remoteVideoHandler != nil {
+			remoteVideoHandler(peerName, pkt.Payload, 0, 0)
+		}
+	}
+}

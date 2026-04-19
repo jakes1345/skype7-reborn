@@ -48,7 +48,7 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean --id tazher --id tazher-nexus
+          args: release --clean --id phaze --id phaze-nexus
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_OWNER: jakes1345

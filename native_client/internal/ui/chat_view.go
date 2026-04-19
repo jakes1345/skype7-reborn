@@ -23,11 +23,11 @@ type ChatViewProps struct {
 
 type ChatView struct {
 	Container *fyne.Container
-	Pulsar    *TazherPulsar
+	Pulsar    *PhazePulsar
 }
 
 func NewChatView(props ChatViewProps) *ChatView {
-	pulsar := NewTazherPulsar()
+	pulsar := NewPhazePulsar()
 	// 1. Header
 	icon := canvas.NewCircle(color.NRGBA{G: 200, B: 0, A: 255})
 	if props.Slicer != nil {

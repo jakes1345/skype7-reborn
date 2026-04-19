@@ -11,7 +11,7 @@ type DialpadProps struct {
 	OnCall func(number string)
 }
 
-func NewTazherDialpad(props DialpadProps) fyne.CanvasObject {
+func NewPhazeDialpad(props DialpadProps) fyne.CanvasObject {
 	numberEntry := widget.NewEntry()
 	numberEntry.SetPlaceHolder("+1 123 456 7890")
 	numberEntry.TextStyle = fyne.TextStyle{Bold: true}

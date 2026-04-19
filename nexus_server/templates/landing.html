@@ -3,218 +3,372 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TAZHER — Sovereign Mesh Communication</title>
+    <title>Phaze — Free calls to friends and family</title>
+    <meta name="description" content="Phaze keeps the world talking. Free video calls, voice calls, instant messaging and file sharing. Download Phaze for Windows, Mac and Linux.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary: #00aff0;
-            --primary-dark: #0078d4;
-            --bg: #0a0c10;
-            --glass: rgba(255, 255, 255, 0.05);
-            --glass-border: rgba(255, 255, 255, 0.1);
+            --skype-blue: #00AFF0;
+            --skype-dark: #0078D4;
+            --text-dark: #333;
+            --text-light: #666;
+            --bg-light: #f5f5f5;
+            --section-alt: #f8fbfd;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background-color: var(--bg);
-            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+            color: var(--text-dark);
             line-height: 1.6;
-            overflow-x: hidden;
+            background: #fff;
+            -webkit-font-smoothing: antialiased;
         }
 
-        .hero {
-            position: relative;
-            height: 100vh;
+        .container { max-width: 1140px; margin: 0 auto; padding: 0 20px; }
+        a { color: var(--skype-blue); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Navigation */
+        .navbar {
+            background: #fff;
+            border-bottom: 1px solid #e8e8e8;
+            height: 60px;
             display: flex;
             align-items: center;
-            justify-content: center;
-            text-align: center;
-            background: radial-gradient(circle at center, rgba(0, 175, 240, 0.15) 0%, transparent 70%);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
         }
-
-        .hero-bg {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: url('/public/img/hero.png') center/cover no-repeat;
-            opacity: 0.4;
-            z-index: -1;
+        .navbar .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
         }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 20px;
-            position: relative;
-            z-index: 1;
-        }
-
-        h1 {
-            font-size: 5rem;
-            font-weight: 800;
-            letter-spacing: -2px;
-            margin-bottom: 20px;
-            background: linear-gradient(to bottom, #fff 30%, #888 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .subtitle {
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
             font-size: 1.5rem;
-            color: #aaa;
-            margin-bottom: 40px;
-            max-width: 700px;
+            font-weight: 700;
+            color: var(--skype-blue);
+        }
+        .nav-brand svg { width: 32px; height: 32px; }
+        .nav-links { display: flex; list-style: none; gap: 0; height: 100%; }
+        .nav-links a {
+            display: flex;
+            align-items: center;
+            height: 60px;
+            padding: 0 20px;
+            color: #444;
+            font-size: 0.95rem;
+            border-bottom: 3px solid transparent;
+            transition: 0.2s;
+        }
+        .nav-links a:hover, .nav-links a.active {
+            color: var(--skype-blue);
+            border-bottom-color: var(--skype-blue);
+            text-decoration: none;
+        }
+        .nav-get {
+            background: var(--skype-blue);
+            color: #fff !important;
+            padding: 8px 24px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        /* Hero */
+        .hero {
+            background: linear-gradient(135deg, #00AFF0 0%, #0078D4 100%);
+            color: #fff;
+            padding: 80px 0;
+            text-align: center;
+        }
+        .hero h1 { font-size: 3rem; font-weight: 300; margin-bottom: 20px; }
+        .hero h1 strong { font-weight: 700; }
+        .hero p { font-size: 1.25rem; opacity: 0.9; max-width: 650px; margin: 0 auto 40px; }
+        .hero-btn {
+            display: inline-block;
+            background: #fff;
+            color: var(--skype-blue);
+            padding: 16px 48px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: 0.2s;
+        }
+        .hero-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+            text-decoration: none;
+        }
+        .hero-img-container {
+            margin-top: 60px;
+            position: relative;
+            max-width: 900px;
             margin-left: auto;
             margin-right: auto;
         }
-
-        .glass-card {
-            background: var(--glass);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 40px;
+        .hero-img {
+            width: 100%;
+            border-radius: 12px;
             box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            border: 8px solid rgba(255,255,255,0.1);
         }
 
-        .download-grid {
+        /* Features Strip */
+        .features-strip {
+            padding: 60px 0;
+            background: #fff;
+            border-bottom: 1px solid #eee;
+        }
+        .strip-title {
+            text-align: center;
+            color: var(--text-light);
+            font-weight: 400;
+            margin-bottom: 40px;
+        }
+        .strip-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(6, 1fr);
             gap: 20px;
-            margin-top: 40px;
+            text-align: center;
         }
+        .strip-item { transition: 0.2s; cursor: pointer; padding: 20px 10px; border-radius: 8px; }
+        .strip-item:hover { background: var(--bg-light); }
+        .strip-icon { font-size: 2.2rem; display: block; margin-bottom: 10px; }
+        .strip-label { font-size: 0.85rem; font-weight: 600; color: #555; }
 
-        .btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 24px;
+        /* Content Sections */
+        .section { padding: 100px 0; }
+        .section.alt { background: var(--section-alt); }
+        .section-row { display: flex; align-items: center; gap: 80px; }
+        .section-row.reverse { flex-direction: row-reverse; }
+        .section-content { flex: 1; }
+        .section-visual { flex: 1; }
+        .section-label { color: var(--skype-blue); font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 2px; margin-bottom: 15px; }
+        .section h2 { font-size: 2.5rem; font-weight: 300; margin-bottom: 20px; line-height: 1.2; }
+        .section h2 strong { font-weight: 700; }
+        .section p { font-size: 1.1rem; color: var(--text-light); margin-bottom: 30px; }
+        .section-link { font-weight: 700; color: var(--skype-blue); font-size: 1rem; }
+
+        .visual-box {
+            background: #fff;
             border-radius: 16px;
-            text-decoration: none;
-            color: #fff;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+            border: 1px solid #eee;
+            text-align: center;
         }
 
-        .btn:hover {
-            background: rgba(255,255,255,0.08);
-            transform: translateY(-5px);
-            border-color: var(--primary);
-            box-shadow: 0 10px 30px rgba(0, 175, 240, 0.2);
-        }
-
-        .btn span { font-weight: 600; font-size: 1.1rem; }
-        .btn small { font-size: 0.8rem; color: #777; margin-top: 4px; }
-
-        .stats-bar {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 40px;
-            background: rgba(0,0,0,0.5);
-            padding: 15px 30px;
-            border-radius: 50px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-
+        /* Stats Section */
+        .stats { background: #f0f4f8; padding: 40px 0; text-align: center; border-top: 1px solid #e0e6ed; }
+        .stats-grid { display: flex; justify-content: center; gap: 80px; }
         .stat-item { text-align: center; }
-        .stat-val { display: block; font-weight: 800; color: var(--primary); font-size: 1.2rem; }
-        .stat-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+        .stat-val { font-size: 2rem; font-weight: 700; color: var(--skype-blue); display: block; }
+        .stat-label { font-size: 0.85rem; color: var(--text-light); text-transform: uppercase; }
 
-        .version-badge {
-            background: var(--primary);
-            color: #000;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 800;
-            vertical-align: middle;
-            margin-left: 10px;
-        }
+        /* Footer */
+        .footer { background: #1a1a1a; color: #888; padding: 60px 0 40px; }
+        .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 40px; margin-bottom: 40px; }
+        .footer-col h4 { color: #fff; font-size: 0.85rem; margin-bottom: 20px; text-transform: uppercase; }
+        .footer-col ul { list-style: none; }
+        .footer-col li { margin-bottom: 10px; }
+        .footer-col a { color: #888; font-size: 0.85rem; }
+        .footer-col a:hover { color: #fff; text-decoration: none; }
+        .footer-bottom { border-top: 1px solid #333; padding-top: 30px; display: flex; justify-content: space-between; font-size: 0.8rem; }
 
-        @keyframes pulse {
-            0% { transform: scale(1); opacity: 0.8; }
-            50% { transform: scale(1.05); opacity: 1; }
-            100% { transform: scale(1); opacity: 0.8; }
-        }
-
-        .live-dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            background: #00ff00;
-            border-radius: 50%;
-            margin-right: 8px;
-            box-shadow: 0 0 10px #00ff00;
-            animation: pulse 2s infinite;
+        @media (max-width: 768px) {
+            .section-row, .section-row.reverse { flex-direction: column; text-align: center; gap: 40px; }
+            .strip-grid { grid-template-columns: repeat(3, 1fr); }
+            .stats-grid { flex-direction: column; gap: 30px; }
+            .hero h1 { font-size: 2.2rem; }
+            .nav-links { display: none; }
         }
     </style>
 </head>
 <body>
-    <div class="hero-bg"></div>
-    
+
+    <nav class="navbar">
+        <div class="container">
+            <a href="/" class="nav-brand">
+                <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="15" fill="#00AFF0"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="16" font-weight="700" font-family="Segoe UI, sans-serif">P</text></svg>
+                Phaze
+            </a>
+            <ul class="nav-links">
+                <li><a href="/" class="active">Home</a></li>
+                <li><a href="/features">Features</a></li>
+                <li><a href="/download">Downloads</a></li>
+                <li><a href="/rates">Rates</a></li>
+                <li><a href="/support">Support</a></li>
+            </ul>
+            <a href="/download" class="nav-get">Get Phaze</a>
+        </div>
+    </nav>
+
     <section class="hero">
         <div class="container">
-            <div class="glass-card">
-                <div style="margin-bottom: 20px;">
-                    <span class="live-dot"></span>
-                    <span style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #00ff00;">Network Phase: ACTIVE</span>
-                </div>
-                <h1>TAZHER <span class="version-badge">v1.25.0</span></h1>
-                <p class="subtitle">Sovereign Mesh Communication. 100% Go. Total Privacy. Reimagined Forensic Reconstruction of the 7.41 Engine.</p>
-                
-                <div class="download-grid">
-                    <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" class="btn">
-                        <span>Windows</span>
-                        <small>x64 Stable</small>
-                    </a>
-                    <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" class="btn">
-                        <span>Linux</span>
-                        <small>AppImage / Binary</small>
-                    </a>
-                    <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" class="btn">
-                        <span>macOS</span>
-                        <small>Intel & Apple Silicon</small>
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <div class="stats-bar">
-            <div class="stat-item">
-                <span class="stat-val" id="node-count">...</span>
-                <span class="stat-label">Sovereign Nodes</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-val">P2P</span>
-                <span class="stat-label">Network Type</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-val">SECURE</span>
-                <span class="stat-label">Relay Status</span>
+            <h1>Stay in touch with the people who <strong>matter most</strong></h1>
+            <p>Phaze keeps the world talking. Free video calls, voice calls and instant messaging on any device.</p>
+            <a href="/download" class="hero-btn">Download Phaze</a>
+            <div class="hero-img-container">
+                <img src="/public/img/hero.png" alt="Phaze Video Calling" class="hero-img">
             </div>
         </div>
     </section>
+
+    <div class="stats">
+        <div class="container">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-val" id="node-count">...</span>
+                    <span class="stat-label">Online Now</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-val" id="member-count">...</span>
+                    <span class="stat-label">Sovereign Members</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-val">E2EE</span>
+                    <span class="stat-label">Sovereign Encryption</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <section class="features-strip">
+        <div class="container">
+            <h3 class="strip-title">However you want to say it, you can do it free with Phaze</h3>
+            <div class="strip-grid">
+                <div class="strip-item">
+                    <span class="strip-icon">📹</span>
+                    <span class="strip-label">Video calls</span>
+                </div>
+                <div class="strip-item">
+                    <span class="strip-icon">👥</span>
+                    <span class="strip-label">Group video</span>
+                </div>
+                <div class="strip-item">
+                    <span class="strip-icon">📞</span>
+                    <span class="strip-label">Voice calls</span>
+                </div>
+                <div class="strip-item">
+                    <span class="strip-icon">💬</span>
+                    <span class="strip-label">Messaging</span>
+                </div>
+                <div class="strip-item">
+                    <span class="strip-icon">🖥️</span>
+                    <span class="strip-label">Screen share</span>
+                </div>
+                <div class="strip-item">
+                    <span class="strip-icon">📁</span>
+                    <span class="strip-label">File sharing</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container">
+            <div class="section-row">
+                <div class="section-content">
+                    <div class="section-label">Video Calling</div>
+                    <h2><strong>Everyone together</strong></h2>
+                    <p>We all love getting friends and family in one place for regular catch ups. Group video calling is free, so it's easier than ever to bring everyone together — no matter where they are.</p>
+                    <a href="/features" class="section-link">Explore video calling →</a>
+                </div>
+                <div class="section-visual">
+                    <div class="visual-box">
+                        <img src="/public/img/hero.png" style="width: 100%; border-radius: 8px;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section alt">
+        <div class="container">
+            <div class="section-row reverse">
+                <div class="section-content">
+                    <div class="section-label">Messaging</div>
+                    <h2><strong>Everyday chat,</strong> completely private</h2>
+                    <p>Stay close to your best friends with group chat — encrypted end-to-end by default. Make plans, share ideas, send files. Every message is sealed before it leaves your device.</p>
+                    <a href="/features" class="section-link">See how it works →</a>
+                </div>
+                <div class="section-visual">
+                    <div class="visual-box">
+                        <div style="font-size: 4rem;">🔒</div>
+                        <h3 style="margin-top: 20px;">Sovereign Security</h3>
+                        <p style="font-size: 0.9rem;">NaCl / SecretBox (XSalsa20 + Poly1305)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <h4>Get Phaze</h4>
+                    <ul>
+                        <li><a href="/download">Windows</a></li>
+                        <li><a href="/download">Mac</a></li>
+                        <li><a href="/download">Linux</a></li>
+                        <li><a href="/download">Android</a></li>
+                        <li><a href="/download">All devices</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Explore</h4>
+                    <ul>
+                        <li><a href="/features">Features</a></li>
+                        <li><a href="/about">About Phaze</a></li>
+                        <li><a href="/rates">Rates</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Support</h4>
+                    <ul>
+                        <li><a href="/support">Help Hub</a></li>
+                        <li><a href="/support">Security</a></li>
+                        <li><a href="/support">Community</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Follow</h4>
+                    <ul>
+                        <li><a href="https://github.com/jakes1345/skype7-reborn">GitHub</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <div>© 2024–2026 Phaze. Not affiliated with Microsoft Corporation.</div>
+                <div><a href="/privacy">Privacy</a> | <a href="/terms">Terms</a></div>
+            </div>
+        </div>
+    </footer>
 
     <script>
         async function updateStats() {
             try {
                 const resp = await fetch('/api/v1/stats');
                 const data = await resp.json();
-                document.getElementById('node-count').innerText = data.active_nodes;
+                document.getElementById('node-count').innerText = data.active_nodes.toLocaleString();
+                if (data.total_members !== undefined) {
+                    document.getElementById('member-count').innerText = data.total_members.toLocaleString();
+                }
             } catch (e) {
-                console.error("Stats offline");
+                // Keep the '...' or previous value
             }
         }
-        setInterval(updateStats, 5000);
+        setInterval(updateStats, 10000);
         updateStats();
     </script>
 </body>

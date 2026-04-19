@@ -32,11 +32,11 @@ func main() {
 	log.Println("Authenticated.")
 
 	// Talk to Bot
-	log.Println("Talking to TazherBot...")
+	log.Println("Talking to PhazeBot...")
 	msg := NexusMessage{
 		Type:      "msg",
 		Sender:    "tester",
-		Recipient: "TazherBot",
+		Recipient: "PhazeBot",
 		Body:      "/mesh",
 	}
 	conn.WriteJSON(msg)

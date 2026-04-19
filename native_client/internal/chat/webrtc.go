@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"log"
 	"os"
 	"strings"
@@ -68,20 +70,26 @@ func iceServers(dynamic *TurnConfig) []webrtc.ICEServer {
 
 // CallManager handles Peer-to-Peer WebRTC connections
 type CallManager struct {
-	Mu           sync.Mutex
-	Connections  map[string]*webrtc.PeerConnection
-	DataChannels map[string]*webrtc.DataChannel
-	LocalTracks  map[string]*webrtc.TrackLocalStaticSample
-	RemoteTracks map[string]*webrtc.TrackRemote
-	API          *webrtc.API
-	OnFile       func(peerName string, fileName string, totalSize int, data []byte)
-	OnRemoteAudio func(peerName string, track *webrtc.TrackRemote)
+	Mu                sync.Mutex
+	Connections       map[string]*webrtc.PeerConnection
+	DataChannels      map[string]*webrtc.DataChannel
+	LocalTracks       map[string]*webrtc.TrackLocalStaticSample
+	LocalVideoTracks  map[string]*webrtc.TrackLocalStaticSample
+	RemoteTracks      map[string]*webrtc.TrackRemote
+	RemoteVideoTracks map[string]*webrtc.TrackRemote
+	API               *webrtc.API
+	OnFile            func(peerName string, fileName string, totalSize int, data []byte)
+	OnRemoteAudio     func(peerName string, track *webrtc.TrackRemote)
+	OnRemoteVideo     func(peerName string, track *webrtc.TrackRemote, width, height int)
+
+	remoteVideoCBs map[string]func(image.Image)
 
 	// in-progress file receives
-	rxState map[string]*fileRx
-	pumps   map[string]*audioPump
-	muted   map[string]bool
-	
+	rxState      map[string]*fileRx
+	pumps        map[string]*audioPump
+	muted        map[string]bool
+	videoEnabled map[string]bool
+
 	ICEServers []webrtc.ICEServer
 }
 
@@ -113,7 +121,7 @@ func NewCallManager() *CallManager {
 	settingEngine := webrtc.SettingEngine{}
 	mediaEngine := &webrtc.MediaEngine{}
 
-	// Register only PCMU (G.711 µ-law) — pure-Go encodable/decodable at 8 kHz mono.
+	// Register PCMU audio codec (G.711 µ-law) — pure-Go encodable/decodable at 8 kHz mono.
 	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
 			MimeType:  webrtc.MimeTypePCMU,
@@ -125,17 +133,54 @@ func NewCallManager() *CallManager {
 		log.Printf("Failed to register PCMU: %v", err)
 	}
 
+	// Register VP8 video codec — widely supported, good compression
+	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeVP8,
+			ClockRate: 90000,
+		},
+		PayloadType: 96,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		log.Printf("Failed to register VP8: %v", err)
+	}
+
+	// Register VP9 as fallback
+	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeVP9,
+			ClockRate: 90000,
+		},
+		PayloadType: 98,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		log.Printf("Failed to register VP9: %v", err)
+	}
+
+	// Register H264 as another fallback option
+	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeH264,
+			ClockRate:   90000,
+			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f",
+		},
+		PayloadType: 100,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		log.Printf("Failed to register H264: %v", err)
+	}
+
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine), webrtc.WithSettingEngine(settingEngine))
 
 	return &CallManager{
-		Connections:  make(map[string]*webrtc.PeerConnection),
-		DataChannels: make(map[string]*webrtc.DataChannel),
-		LocalTracks:  make(map[string]*webrtc.TrackLocalStaticSample),
-		RemoteTracks: make(map[string]*webrtc.TrackRemote),
-		rxState:      make(map[string]*fileRx),
-		pumps:        make(map[string]*audioPump),
-		API:          api,
-		ICEServers:   iceServers(nil),
+		Connections:       make(map[string]*webrtc.PeerConnection),
+		DataChannels:      make(map[string]*webrtc.DataChannel),
+		LocalTracks:       make(map[string]*webrtc.TrackLocalStaticSample),
+		LocalVideoTracks:  make(map[string]*webrtc.TrackLocalStaticSample),
+		RemoteTracks:      make(map[string]*webrtc.TrackRemote),
+		RemoteVideoTracks: make(map[string]*webrtc.TrackRemote),
+		rxState:           make(map[string]*fileRx),
+		pumps:             make(map[string]*audioPump),
+		videoEnabled:      make(map[string]bool),
+		API:               api,
+		ICEServers:        iceServers(nil),
 	}
 }
 
@@ -147,7 +192,7 @@ func (cm *CallManager) SetICEServers(dynamic *TurnConfig) {
 func (cm *CallManager) addAudioTrack(peerName string, pc *webrtc.PeerConnection) {
 	track, err := webrtc.NewTrackLocalStaticSample(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMU, ClockRate: 8000, Channels: 1},
-		"audio", "tazher-"+peerName,
+		"audio", "phaze-"+peerName,
 	)
 	if err != nil {
 		log.Printf("[WebRTC] create audio track: %v", err)
@@ -160,15 +205,27 @@ func (cm *CallManager) addAudioTrack(peerName string, pc *webrtc.PeerConnection)
 	cm.LocalTracks[peerName] = track
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		log.Printf("[WebRTC] remote track from %s codec=%s", peerName, remote.Codec().MimeType)
-		cm.Mu.Lock()
-		cm.RemoteTracks[peerName] = remote
-		cb := cm.OnRemoteAudio
-		cm.Mu.Unlock()
-		if cb != nil {
-			cb(peerName, remote)
+		log.Printf("[WebRTC] remote track from %s codec=%s type=%s", peerName, remote.Codec().MimeType, remote.Kind().String())
+
+		if remote.Kind() == webrtc.RTPCodecTypeVideo {
+			cm.Mu.Lock()
+			cm.RemoteVideoTracks[peerName] = remote
+			cb := cm.OnRemoteVideo
+			cm.Mu.Unlock()
+			if cb != nil {
+				cb(peerName, remote, 640, 480)
+			}
+			go DrainRemoteVideo(peerName, remote)
+		} else {
+			cm.Mu.Lock()
+			cm.RemoteTracks[peerName] = remote
+			cb := cm.OnRemoteAudio
+			cm.Mu.Unlock()
+			if cb != nil {
+				cb(peerName, remote)
+			}
+			go drainRemote(peerName, remote)
 		}
-		go drainRemote(peerName, remote)
 	})
 
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
@@ -189,6 +246,70 @@ func (cm *CallManager) WriteAudio(peerName string, frame []byte, durationMs int)
 	return track.WriteSample(media.Sample{Data: frame, Duration: time.Duration(durationMs) * time.Millisecond})
 }
 
+// AddVideoTrack reserves video capability for a peer. Frames are sent
+// over the existing DataChannel as JPEG (see WriteVideoFrame). We don't
+// add a real RTP video track because we lack a pure-Go VP8 encoder.
+// This avoids advertising a codec we can't actually feed.
+func (cm *CallManager) AddVideoTrack(peerName string) error {
+	cm.Mu.Lock()
+	defer cm.Mu.Unlock()
+
+	if _, ok := cm.Connections[peerName]; !ok {
+		return fmt.Errorf("no peer connection for %s", peerName)
+	}
+	cm.videoEnabled[peerName] = true
+	log.Printf("[WebRTC] Video enabled for %s (DataChannel JPEG transport)", peerName)
+	return nil
+}
+
+// WriteVideoFrame ships a frame to the peer over the DataChannel as JPEG.
+// Quality 60 is a deliberate compromise: ~25KB per 640x480 frame, so a
+// 10fps stream stays under 2 Mbit/s.
+func (cm *CallManager) WriteVideoFrame(peerName string, img image.Image, _ int) error {
+	cm.Mu.Lock()
+	dc, ok := cm.DataChannels[peerName]
+	enabled := cm.videoEnabled[peerName]
+	cm.Mu.Unlock()
+
+	if !ok || !enabled {
+		return nil
+	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 60}); err != nil {
+		return err
+	}
+	hdr, _ := json.Marshal(struct {
+		Size int `json:"size"`
+	}{buf.Len()})
+	frame := append([]byte("VID"), append(hdr, '\n')...)
+	frame = append(frame, buf.Bytes()...)
+	return dc.Send(frame)
+}
+
+// OnRemoteVideoFrameFor registers a per-peer callback fired when a JPEG
+// video frame arrives over the DataChannel from peerName. Pass nil to clear.
+func (cm *CallManager) OnRemoteVideoFrameFor(peerName string, cb func(image.Image)) {
+	cm.Mu.Lock()
+	defer cm.Mu.Unlock()
+	if cm.remoteVideoCBs == nil {
+		cm.remoteVideoCBs = make(map[string]func(image.Image))
+	}
+	if cb == nil {
+		delete(cm.remoteVideoCBs, peerName)
+		return
+	}
+	cm.remoteVideoCBs[peerName] = cb
+}
+
+// EnableVideo enables or disables video for a peer.
+func (cm *CallManager) EnableVideo(peerName string, enabled bool) {
+	cm.Mu.Lock()
+	defer cm.Mu.Unlock()
+	cm.videoEnabled[peerName] = enabled
+	log.Printf("[WebRTC] Video %s for %s", map[bool]string{true: "enabled", false: "disabled"}[enabled], peerName)
+}
+
 // CreateOffer prepares a new PeerConnection and generates an SDP offer
 func (cm *CallManager) CreateOffer(peerName string, config webrtc.Configuration, onICECandidate func(*webrtc.ICECandidate)) (*webrtc.PeerConnection, string, error) {
 	cm.Mu.Lock()
@@ -205,7 +326,7 @@ func (cm *CallManager) CreateOffer(peerName string, config webrtc.Configuration,
 	}
 
 	// Create a dedicated signaling and file data channel
-	dc, err := pc.CreateDataChannel("tazher-data", nil)
+	dc, err := pc.CreateDataChannel("phaze-data", nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -361,6 +482,22 @@ func (cm *CallManager) setupDataChannel(peerName string, dc *webrtc.DataChannel)
 			return
 		}
 		switch {
+		case len(data) >= 3 && bytes.Equal(data[:3], []byte("VID")):
+			nl := bytes.IndexByte(data, '\n')
+			if nl < 0 {
+				return
+			}
+			img, err := jpeg.Decode(bytes.NewReader(data[nl+1:]))
+			if err != nil {
+				log.Printf("[WebRTC] bad video frame from %s: %v", peerName, err)
+				return
+			}
+			cm.Mu.Lock()
+			cb := cm.remoteVideoCBs[peerName]
+			cm.Mu.Unlock()
+			if cb != nil {
+				cb(img)
+			}
 		case len(data) >= 3 && bytes.Equal(data[:3], []byte("HDR")):
 			nl := bytes.IndexByte(data, '\n')
 			if nl < 0 {
