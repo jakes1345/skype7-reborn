@@ -206,6 +206,18 @@
             <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">
                 Phaze binaries are self-signed and sovereign. Verify your download bit-for-bit using the fingerprints below.
             </p>
+            <div style="background:#fff7e6;border-left:4px solid #ffa500;padding:16px 20px;border-radius:4px;margin:0 0 30px;font-size:0.9rem;color:#333;">
+                <strong>Windows SmartScreen / "unknown publisher" warning?</strong><br>
+                Phaze is code-signed by the project, not by Microsoft's cert-cartel. Windows will say
+                "Windows protected your PC." That's expected. Click <strong>More info</strong> &rarr;
+                <strong>Run anyway</strong>. Confirm the SHA-256 below matches your download before running.
+                Checksums are how you verify; signatures are how Microsoft charges $200/year for a green badge.
+            </div>
+            <div style="background:#f0f7ff;border-left:4px solid var(--skype-blue);padding:16px 20px;border-radius:4px;margin:0 0 30px;font-size:0.9rem;color:#333;">
+                <strong>How to verify the hash:</strong><br>
+                Windows (PowerShell): <code>Get-FileHash Phaze.exe -Algorithm SHA256</code><br>
+                Linux / macOS: <code>sha256sum Phaze.linux</code> or <code>shasum -a 256 Phaze.apk</code>
+            </div>
             <div class="verify-grid">
                 <div class="verify-item">
                     <strong>Phaze.apk (Android)</strong>
