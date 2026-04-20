@@ -215,7 +215,11 @@ func (cm *CallManager) addAudioTrack(peerName string, pc *webrtc.PeerConnection)
 			if cb != nil {
 				cb(peerName, remote, 640, 480)
 			}
-			go DrainRemoteVideo(peerName, remote)
+			if strings.EqualFold(remote.Codec().MimeType, webrtc.MimeTypeVP8) {
+				go cm.drainVP8Receive(peerName, remote)
+			} else {
+				go DrainRemoteVideo(peerName, remote)
+			}
 		} else {
 			cm.Mu.Lock()
 			cm.RemoteTracks[peerName] = remote
@@ -246,26 +250,35 @@ func (cm *CallManager) WriteAudio(peerName string, frame []byte, durationMs int)
 	return track.WriteSample(media.Sample{Data: frame, Duration: time.Duration(durationMs) * time.Millisecond})
 }
 
-// AddVideoTrack reserves video capability for a peer. Frames are sent
-// over the existing DataChannel as JPEG (see WriteVideoFrame). We don't
-// add a real RTP video track because we lack a pure-Go VP8 encoder.
-// This avoids advertising a codec we can't actually feed.
+// AddVideoTrack adds a real VP8 RTP track when libvpx is available (desktop
+// builds). On android it falls back to the JPEG DataChannel path.
 func (cm *CallManager) AddVideoTrack(peerName string) error {
 	cm.Mu.Lock()
-	defer cm.Mu.Unlock()
-
-	if _, ok := cm.Connections[peerName]; !ok {
+	pc, ok := cm.Connections[peerName]
+	cm.Mu.Unlock()
+	if !ok {
 		return fmt.Errorf("no peer connection for %s", peerName)
 	}
-	cm.videoEnabled[peerName] = true
-	log.Printf("[WebRTC] Video enabled for %s (DataChannel JPEG transport)", peerName)
+
+	if err := cm.initVP8Sender(peerName, pc); err != nil {
+		log.Printf("[WebRTC] VP8 unavailable for %s (%v) — using JPEG DataChannel", peerName, err)
+		cm.Mu.Lock()
+		cm.videoEnabled[peerName] = true
+		cm.Mu.Unlock()
+		return nil
+	}
+	log.Printf("[WebRTC] VP8 RTP track active for %s", peerName)
 	return nil
 }
 
-// WriteVideoFrame ships a frame to the peer over the DataChannel as JPEG.
-// Quality 60 is a deliberate compromise: ~25KB per 640x480 frame, so a
-// 10fps stream stays under 2 Mbit/s.
+// WriteVideoFrame ships a frame to the peer. Prefers the VP8 RTP track when
+// available; falls back to JPEG-over-DataChannel otherwise (android, or when
+// VP8 encoder failed to start).
 func (cm *CallManager) WriteVideoFrame(peerName string, img image.Image, _ int) error {
+	if cm.WriteVideoFrameVP8(peerName, img) {
+		return nil
+	}
+
 	cm.Mu.Lock()
 	dc, ok := cm.DataChannels[peerName]
 	enabled := cm.videoEnabled[peerName]
