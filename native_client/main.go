@@ -128,7 +128,8 @@ type PhazeApp struct {
 	CallWindows map[string]fyne.Window
 
 	// Database
-	DB *sql.DB
+	DB     *sql.DB
+	DBPath string
 
 	// Settings
 	CompactMode   bool
@@ -199,6 +200,10 @@ func NewPhazeApp() *PhazeApp {
 	dbDir := filepath.Join(home, ".private_phaze")
 	os.MkdirAll(dbDir, 0755)
 	dbPath := filepath.Join(dbDir, "main.db")
+
+	if err := decryptDBFile(dbPath); err != nil {
+		log.Printf("[Vault] DB decrypt failed: %v", err)
+	}
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -279,6 +284,7 @@ func NewPhazeApp() *PhazeApp {
 		ChatWindows:      make(map[string]fyne.Window),
 		CallWindows:      make(map[string]fyne.Window),
 		DB:               db,
+		DBPath:           dbPath,
 		CompactMode:      false,
 		SoundEnabled:     true,
 		ChatLogs:         make(map[string]*fyne.Container),
@@ -2354,6 +2360,16 @@ func main() {
 	}
 
 	phaze.ShowLoginWindow()
+	phaze.App.Lifecycle().SetOnStopped(func() {
+		if phaze.DB != nil {
+			phaze.DB.Close()
+		}
+		if phaze.DBPath != "" {
+			if err := encryptDBFile(phaze.DBPath); err != nil {
+				log.Printf("[Vault] DB encrypt on shutdown failed: %v", err)
+			}
+		}
+	})
 	phaze.App.Run()
 }
 
