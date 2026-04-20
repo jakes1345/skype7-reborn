@@ -814,6 +814,17 @@ func (s *PhazeApp) HandleIncomingMessage(msg NexusMessage) {
 			}
 		})
 
+	case "qr_login_result":
+		if msg.Status == "approved" {
+			fyne.Do(func() {
+				dialog.ShowInformation("Phaze", "Sign-in approved on the other device.", s.MainWindow)
+			})
+		} else if msg.Error != "" {
+			fyne.Do(func() {
+				dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow)
+			})
+		}
+
 	case "forgot_password_result":
 		fyne.Do(func() {
 			dialog.ShowInformation("Phaze", "If an account matches, a reset link has been emailed.", s.MainWindow)
@@ -2053,6 +2064,11 @@ func (s *PhazeApp) ShowLoginWindow() {
 	})
 	forgotBtn.Importance = widget.LowImportance
 
+	qrBtn := widget.NewButton("Sign in with QR", func() {
+		s.showQRLoginDialog(win)
+	})
+	qrBtn.Importance = widget.LowImportance
+
 	win.SetContent(container.NewCenter(
 		container.NewVBox(
 			container.NewCenter(logo),
@@ -2064,6 +2080,7 @@ func (s *PhazeApp) ShowLoginWindow() {
 			statusLabel,
 			container.NewPadded(loginBtn),
 			container.NewCenter(createBtn),
+			container.NewCenter(qrBtn),
 			container.NewCenter(forgotBtn),
 			layout.NewSpacer(),
 			widget.NewLabelWithStyle("Version "+Version, fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
@@ -2106,6 +2123,94 @@ func (s *PhazeApp) promptTOTP(parent fyne.Window, onCode func(code string)) {
 			}
 		}, parent)
 	d.Show()
+}
+
+func (s *PhazeApp) showQRLoginDialog(parent fyne.Window) {
+	addr := s.ServerAddress
+	if addr == "" {
+		addr = "wss://phazechat.world/ws"
+	}
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	c, _, err := dialer.Dial(addr, nil)
+	if err != nil {
+		dialog.ShowError(err, parent)
+		return
+	}
+
+	c.WriteJSON(NexusMessage{Type: "qr_login_create"})
+	var first NexusMessage
+	if err := c.ReadJSON(&first); err != nil || first.Error != "" || first.QRToken == "" {
+		c.Close()
+		dialog.ShowError(fmt.Errorf("could not start QR login: %s", first.Error), parent)
+		return
+	}
+
+	status := widget.NewLabel("Open Phaze on a signed-in device and approve this code:")
+	linkLabel := widget.NewLabel(first.QRData)
+	linkLabel.Wrapping = fyne.TextWrapBreak
+	tokenLabel := widget.NewLabel("Token: " + first.QRToken)
+	copyBtn := widget.NewButton("Copy link", func() {
+		s.App.Clipboard().SetContent(first.QRData)
+	})
+
+	content := container.NewVBox(status, linkLabel, tokenLabel, copyBtn)
+	stop := make(chan struct{})
+
+	d := dialog.NewCustom("Sign in with QR", "Cancel", content, parent)
+	d.SetOnClosed(func() {
+		close(stop)
+		c.Close()
+	})
+	d.Resize(fyne.NewSize(460, 260))
+	d.Show()
+
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if err := c.WriteJSON(NexusMessage{Type: "qr_login_check", QRToken: first.QRToken}); err != nil {
+					return
+				}
+				var r NexusMessage
+				if err := c.ReadJSON(&r); err != nil {
+					return
+				}
+				if r.Type == "auth_result" && r.Status == "ok" {
+					s.ConnMu.Lock()
+					if s.Conn != nil {
+						s.Conn.Close()
+					}
+					s.Conn = c
+					s.Username = r.Sender
+					s.ServerAddress = addr
+					if r.QRToken != "" {
+						s.SessionToken = r.QRToken
+						keyring.Set(sessionKeyringService, s.Username, r.QRToken)
+					}
+					if r.TurnConfig != nil {
+						s.Calls.SetICEServers(r.TurnConfig)
+					}
+					s.authChan = make(chan authResult, 1)
+					s.ConnMu.Unlock()
+					go s.ReadLoop()
+					fyne.Do(func() {
+						d.Hide()
+						s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('username', ?)", s.Username)
+						s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('server', ?)", s.ServerAddress)
+						s.PlaySound("Login.wav")
+						s.ShowMainWindow()
+						s.CheckForUpdates()
+						parent.Close()
+					})
+					return
+				}
+			}
+		}
+	}()
 }
 
 func (s *PhazeApp) showForgotPasswordDialog(parent fyne.Window) {
@@ -2420,6 +2525,28 @@ func (s *PhazeApp) showSettingsWindow() {
 			}
 		}, s.MainWindow)
 	})
+	approveQR := widget.NewButton("Approve QR sign-in", func() {
+		tokenEntry := widget.NewEntry()
+		tokenEntry.SetPlaceHolder("Paste phaze://login?token=... or just the token")
+		dialog.ShowForm("Approve QR sign-in", "Approve", "Cancel",
+			[]*widget.FormItem{widget.NewFormItem("Code", tokenEntry)},
+			func(ok bool) {
+				if !ok || tokenEntry.Text == "" {
+					return
+				}
+				tok := strings.TrimSpace(tokenEntry.Text)
+				if idx := strings.Index(tok, "token="); idx >= 0 {
+					tok = tok[idx+len("token="):]
+				}
+				host, _ := os.Hostname()
+				s.SendMessage(NexusMessage{
+					Type:       "qr_login_approve",
+					Sender:     s.Username,
+					QRToken:    tok,
+					DeviceInfo: runtime.GOOS + "/" + host,
+				})
+			}, s.MainWindow)
+	})
 	revokeSession := widget.NewButton("Sign out everywhere", func() {
 		s.SendMessage(NexusMessage{Type: "revoke_session", Sender: s.Username, QRToken: s.SessionToken})
 		keyring.Delete(sessionKeyringService, s.Username)
@@ -2431,6 +2558,7 @@ func (s *PhazeApp) showSettingsWindow() {
 		widget.NewLabelWithStyle("Security", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		enable2FA,
 		disable2FA,
+		approveQR,
 		revokeSession,
 	)
 
