@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -102,7 +103,20 @@ type NexusMessage struct {
 	PublicKey      []byte           `json:"public_key,omitempty"`
 	KeyFingerprint string           `json:"key_fingerprint,omitempty"`
 	TurnConfig     *chat.TurnConfig `json:"turn_config,omitempty"`
+	TOTPCode       string           `json:"totp_code,omitempty"`
+	TOTPURI        string           `json:"totp_uri,omitempty"`
+	QRToken        string           `json:"qr_token,omitempty"`
+	QRData         string           `json:"qr_data,omitempty"`
+	DeviceInfo     string           `json:"device_info,omitempty"`
 }
+
+type authResult struct {
+	Status       string
+	SessionToken string
+	Error        string
+}
+
+const sessionKeyringService = "phaze-sovereign-session"
 
 // PhazeApp holds all application state
 type PhazeApp struct {
@@ -122,10 +136,11 @@ type PhazeApp struct {
 	SoundEnabled  bool
 
 	// Network
-	Username string
-	Conn     *websocket.Conn
-	ConnMu   sync.Mutex
-	authChan chan bool
+	Username     string
+	SessionToken string
+	Conn         *websocket.Conn
+	ConnMu       sync.Mutex
+	authChan     chan authResult
 
 	// UI State
 	ChatLogs         map[string]*fyne.Container
@@ -495,6 +510,20 @@ func (s *PhazeApp) ShowBuyCreditDialog() {
 // ---------- Network ----------
 
 func (s *PhazeApp) ConnectToServer(password string) error {
+	res, err := s.connect(password, "", "")
+	if err != nil {
+		return err
+	}
+	if res.Status != "ok" {
+		if res.Error != "" {
+			return fmt.Errorf("%s", res.Error)
+		}
+		return fmt.Errorf("authentication failed")
+	}
+	return nil
+}
+
+func (s *PhazeApp) connect(password, totpCode, sessionToken string) (authResult, error) {
 	s.ConnMu.Lock()
 	defer s.ConnMu.Unlock()
 
@@ -502,14 +531,11 @@ func (s *PhazeApp) ConnectToServer(password string) error {
 		s.Conn.Close()
 	}
 
-	// Single Mesh discovery: Dial Global and Local in parallel
 	targets := []string{
 		s.Infra.Gateway,
 		"ws://localhost:8080/ws",
 		"wss://phazechat.world/ws",
 	}
-
-	// If user manually set a different server, prioritize it
 	if s.ServerAddress != "" && !strings.Contains(s.ServerAddress, "localhost") && s.ServerAddress != s.Infra.Gateway {
 		targets = append([]string{s.ServerAddress}, targets...)
 	}
@@ -518,7 +544,6 @@ func (s *PhazeApp) ConnectToServer(password string) error {
 	var err error
 	for _, addr := range targets {
 		log.Printf("[Mesh] Attempting connection to %s...", addr)
-		// Set a shorter timeout for sequential dials
 		dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
 		c, _, err = dialer.Dial(addr, nil)
 		if err == nil {
@@ -529,27 +554,36 @@ func (s *PhazeApp) ConnectToServer(password string) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("could not reach any Phaze Nexus: %w", err)
+		return authResult{}, fmt.Errorf("could not reach any Phaze Nexus: %w", err)
 	}
 	s.Conn = c
 
-	// Setup auth channel for handshake
-	s.authChan = make(chan bool, 1)
+	s.authChan = make(chan authResult, 1)
 
-	auth := NexusMessage{Type: "auth", Sender: s.Username, Body: password}
-	s.Conn.WriteJSON(auth)
+	host, _ := os.Hostname()
+	device := runtime.GOOS + "/" + host
+
+	var authMsg NexusMessage
+	if sessionToken != "" {
+		authMsg = NexusMessage{Type: "session_auth", QRToken: sessionToken, DeviceInfo: device}
+	} else {
+		authMsg = NexusMessage{Type: "auth", Sender: s.Username, Body: password, TOTPCode: totpCode, DeviceInfo: device}
+	}
+	s.Conn.WriteJSON(authMsg)
 
 	go s.ReadLoop()
 
-	// Wait for auth_result (timeout 5s)
-	// We unlock briefly so ReadLoop can process the result if it comes fast
 	s.ConnMu.Unlock()
 	defer s.ConnMu.Lock()
 
 	select {
-	case success := <-s.authChan:
-		if !success {
-			return fmt.Errorf("invalid username or password")
+	case res := <-s.authChan:
+		if res.Status != "ok" {
+			return res, nil
+		}
+		if res.SessionToken != "" {
+			s.SessionToken = res.SessionToken
+			keyring.Set(sessionKeyringService, s.Username, res.SessionToken)
 		}
 		s.PlaySound("Login.wav")
 
@@ -597,18 +631,23 @@ func (s *PhazeApp) ConnectToServer(password string) error {
 			}
 		}
 
-		// Activate Self-Healing Sentinel
+		// Activate Self-Healing Sentinel — prefer session-token reconnect, fall back to password
 		pass, _ := keyring.Get(keyringService, s.Username)
 		s.Sentinel.Watch(func() error {
+			if tok, err := keyring.Get(sessionKeyringService, s.Username); err == nil && tok != "" {
+				if r, err := s.connect("", "", tok); err == nil && r.Status == "ok" {
+					return nil
+				}
+			}
 			return s.ConnectToServer(pass)
 		})
 
 		// Check for Sovereign Updates
 		go s.CheckForUpdates()
 
-		return nil
+		return res, nil
 	case <-time.After(5 * time.Second):
-		return fmt.Errorf("authentication timeout")
+		return authResult{}, fmt.Errorf("authentication timeout")
 	}
 }
 
@@ -742,6 +781,7 @@ func (s *PhazeApp) HandleIncomingMessage(msg NexusMessage) {
 	}
 	switch msg.Type {
 	case "auth_result":
+		res := authResult{Status: msg.Status, SessionToken: msg.QRToken, Error: msg.Error}
 		if msg.Status == "ok" {
 			log.Println("Authenticated with Nexus")
 			s.PlaySound("Login.wav")
@@ -750,14 +790,34 @@ func (s *PhazeApp) HandleIncomingMessage(msg NexusMessage) {
 				log.Println("[Sovereign] Captured Dynamic Media Token.")
 				s.Calls.SetICEServers(msg.TurnConfig)
 			}
-			s.authChan <- true
 		} else {
-			log.Println("Auth failed:", msg.Error)
-			select {
-			case s.authChan <- false:
-			default:
-			}
+			log.Println("Auth failed:", msg.Error, "status:", msg.Status)
 		}
+		select {
+		case s.authChan <- res:
+		default:
+		}
+
+	case "totp_result":
+		fyne.Do(func() {
+			switch msg.Status {
+			case "pending_confirm":
+				s.showTOTPEnrollDialog(msg.TOTPURI)
+			case "enabled":
+				dialog.ShowInformation("Two-Factor Authentication", "2FA is now enabled on this account.", s.MainWindow)
+			case "disabled":
+				dialog.ShowInformation("Two-Factor Authentication", "2FA has been disabled.", s.MainWindow)
+			default:
+				if msg.Error != "" {
+					dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow)
+				}
+			}
+		})
+
+	case "forgot_password_result":
+		fyne.Do(func() {
+			dialog.ShowInformation("Phaze", "If an account matches, a reset link has been emailed.", s.MainWindow)
+		})
 
 	case "msg":
 		s.PlaySound("MessageIncoming.wav")
@@ -1899,27 +1959,77 @@ func (s *PhazeApp) ShowLoginWindow() {
 		serverEntry.SetText(savedServer)
 	}
 
-	// Auto-login if we have everything
+	statusLabel := widget.NewLabel("")
+	statusLabel.Hide()
+
+	finishLogin := func(pass string) {
+		if pass != "" {
+			keyring.Set(keyringService, s.Username, pass)
+		}
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('username', ?)", s.Username)
+		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('server', ?)", s.ServerAddress)
+		s.PlaySound("Login.wav")
+		s.ShowMainWindow()
+		s.CheckForUpdates()
+		win.Close()
+	}
+
+	var attemptLogin func(pass string)
+	attemptLogin = func(pass string) {
+		res, err := s.connect(pass, "", "")
+		if err != nil {
+			statusLabel.SetText("Error: " + err.Error())
+			return
+		}
+		switch res.Status {
+		case "ok":
+			finishLogin(pass)
+		case "totp_required":
+			s.promptTOTP(win, func(code string) {
+				r, err := s.connect(pass, code, "")
+				if err != nil {
+					statusLabel.SetText("Error: " + err.Error())
+					return
+				}
+				if r.Status != "ok" {
+					statusLabel.SetText("Invalid 2FA code")
+					statusLabel.Show()
+					attemptLogin(pass)
+					return
+				}
+				finishLogin(pass)
+			})
+		default:
+			msg := res.Error
+			if msg == "" {
+				msg = "authentication failed"
+			}
+			statusLabel.SetText("Error: " + msg)
+			statusLabel.Show()
+		}
+	}
+
+	// Auto-login: prefer stored session token, then password
 	if savedUser != "" && savedServer != "" {
-		pass, err := keyring.Get(keyringService, savedUser)
-		if err == nil && pass != "" {
-			passwordEntry.SetText(pass)
-			// Trigger login in a moment
+		s.Username = savedUser
+		s.ServerAddress = savedServer
+		if tok, err := keyring.Get(sessionKeyringService, savedUser); err == nil && tok != "" {
 			go func() {
 				time.Sleep(500 * time.Millisecond)
-				s.Username = savedUser
-				s.ServerAddress = savedServer
-				if s.ConnectToServer(pass) == nil {
+				if r, err := s.connect("", "", tok); err == nil && r.Status == "ok" {
 					s.ShowMainWindow()
 					s.CheckForUpdates()
 					win.Close()
 				}
 			}()
+		} else if pass, err := keyring.Get(keyringService, savedUser); err == nil && pass != "" {
+			passwordEntry.SetText(pass)
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				attemptLogin(pass)
+			}()
 		}
 	}
-
-	statusLabel := widget.NewLabel("")
-	statusLabel.Hide()
 
 	loginBtn := widget.NewButton("Sign In", func() {
 		if usernameEntry.Text == "" || passwordEntry.Text == "" {
@@ -1927,34 +2037,21 @@ func (s *PhazeApp) ShowLoginWindow() {
 			statusLabel.Show()
 			return
 		}
-
 		s.Username = usernameEntry.Text
-		pass := passwordEntry.Text
-
 		statusLabel.SetText("Connecting to Phaze...")
 		statusLabel.Show()
-
-		err := s.ConnectToServer(pass)
-		if err != nil {
-			statusLabel.SetText("Error: " + err.Error())
-			return
-		}
-
-		// Persist successful credentials
-		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('username', ?)", s.Username)
-		s.DB.Exec("INSERT OR REPLACE INTO Profile (key, value) VALUES ('server', ?)", s.ServerAddress)
-		keyring.Set(keyringService, s.Username, pass)
-
-		s.PlaySound("Login.wav")
-		s.ShowMainWindow()
-		s.CheckForUpdates()
-		win.Close()
+		attemptLogin(passwordEntry.Text)
 	})
 	loginBtn.Importance = widget.HighImportance
 
 	createBtn := widget.NewButton("Create Account", func() {
 		s.showRegistrationWindow(serverEntry.Text)
 	})
+
+	forgotBtn := widget.NewButton("Forgot password?", func() {
+		s.showForgotPasswordDialog(win)
+	})
+	forgotBtn.Importance = widget.LowImportance
 
 	win.SetContent(container.NewCenter(
 		container.NewVBox(
@@ -1967,11 +2064,81 @@ func (s *PhazeApp) ShowLoginWindow() {
 			statusLabel,
 			container.NewPadded(loginBtn),
 			container.NewCenter(createBtn),
+			container.NewCenter(forgotBtn),
 			layout.NewSpacer(),
 			widget.NewLabelWithStyle("Version "+Version, fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
 		),
 	))
 	win.Show()
+}
+
+func (s *PhazeApp) showTOTPEnrollDialog(uri string) {
+	uriLabel := widget.NewLabel(uri)
+	uriLabel.Wrapping = fyne.TextWrapBreak
+	codeEntry := widget.NewEntry()
+	codeEntry.SetPlaceHolder("6-digit code from authenticator")
+	d := dialog.NewCustomConfirm("Enable 2FA", "Confirm", "Cancel",
+		container.NewVBox(
+			widget.NewLabel("Add this otpauth:// URI to Google Authenticator / Authy:"),
+			uriLabel,
+			widget.NewLabel("Then enter the current 6-digit code to confirm:"),
+			codeEntry,
+		), func(ok bool) {
+			if !ok || codeEntry.Text == "" {
+				return
+			}
+			s.SendMessage(NexusMessage{Type: "confirm_totp", Sender: s.Username, TOTPCode: strings.TrimSpace(codeEntry.Text)})
+		}, s.MainWindow)
+	d.Resize(fyne.NewSize(500, 300))
+	d.Show()
+}
+
+func (s *PhazeApp) promptTOTP(parent fyne.Window, onCode func(code string)) {
+	codeEntry := widget.NewEntry()
+	codeEntry.SetPlaceHolder("6-digit code")
+	d := dialog.NewCustomConfirm("Two-Factor Authentication", "Verify", "Cancel",
+		container.NewVBox(
+			widget.NewLabel("Enter the code from your authenticator app:"),
+			codeEntry,
+		), func(ok bool) {
+			if ok && codeEntry.Text != "" {
+				onCode(strings.TrimSpace(codeEntry.Text))
+			}
+		}, parent)
+	d.Show()
+}
+
+func (s *PhazeApp) showForgotPasswordDialog(parent fyne.Window) {
+	userEntry := widget.NewEntry()
+	userEntry.SetPlaceHolder("Phaze Name")
+	emailEntry := widget.NewEntry()
+	emailEntry.SetPlaceHolder("Email on file")
+	d := dialog.NewCustomConfirm("Reset Password", "Send Reset Email", "Cancel",
+		container.NewVBox(
+			widget.NewLabel("We'll email a reset link to the address on file."),
+			userEntry, emailEntry,
+		), func(ok bool) {
+			if !ok || userEntry.Text == "" || emailEntry.Text == "" {
+				return
+			}
+			addr := s.ServerAddress
+			if addr == "" {
+				addr = "wss://phazechat.world/ws"
+			}
+			c, _, err := websocket.DefaultDialer.Dial(addr, nil)
+			if err != nil {
+				dialog.ShowError(err, parent)
+				return
+			}
+			defer c.Close()
+			c.WriteJSON(NexusMessage{
+				Type:   "forgot_password",
+				Sender: strings.TrimSpace(userEntry.Text),
+				Email:  strings.TrimSpace(emailEntry.Text),
+			})
+			dialog.ShowInformation("Phaze", "If the account exists, a reset link has been emailed.", parent)
+		}, parent)
+	d.Show()
 }
 
 func (s *PhazeApp) showRegistrationWindow(serverAddr string) {
@@ -2243,7 +2410,31 @@ func (s *PhazeApp) showSettingsWindow() {
 		},
 	})
 
-	win.SetContent(settings)
+	enable2FA := widget.NewButton("Enable 2FA", func() {
+		s.SendMessage(NexusMessage{Type: "enable_totp", Sender: s.Username})
+	})
+	disable2FA := widget.NewButton("Disable 2FA", func() {
+		dialog.ShowConfirm("Disable 2FA", "Are you sure? Your account will rely on password only.", func(ok bool) {
+			if ok {
+				s.SendMessage(NexusMessage{Type: "disable_totp", Sender: s.Username})
+			}
+		}, s.MainWindow)
+	})
+	revokeSession := widget.NewButton("Sign out everywhere", func() {
+		s.SendMessage(NexusMessage{Type: "revoke_session", Sender: s.Username, QRToken: s.SessionToken})
+		keyring.Delete(sessionKeyringService, s.Username)
+		s.SessionToken = ""
+		dialog.ShowInformation("Phaze", "All sessions revoked. You'll need to sign in again next launch.", s.MainWindow)
+	})
+
+	security := container.NewVBox(
+		widget.NewLabelWithStyle("Security", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		enable2FA,
+		disable2FA,
+		revokeSession,
+	)
+
+	win.SetContent(container.NewVBox(settings, widget.NewSeparator(), security))
 	win.Show()
 }
 
