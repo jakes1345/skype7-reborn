@@ -1554,17 +1554,22 @@ func (s *NexusServer) downloadHandler(w http.ResponseWriter, r *http.Request) {
 func (s *NexusServer) fileDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/downloads/")
 	
-	// Force binary download mode to prevent "ZIP Extraction" errors on mobile
+	// Force octet-stream + attachment for every binary so mobile browsers
+	// (Samsung Internet, Chrome Android) save to Downloads instead of
+	// handing off to the package installer or a file viewer.
 	if strings.HasSuffix(path, ".apk") {
-		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"Phaze.apk\"")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Cache-Control", "no-store")
 	} else if strings.HasSuffix(path, ".exe") {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"Phaze.exe\"")
+		w.Header().Set("Cache-Control", "no-store")
 	} else if strings.HasSuffix(path, ".linux") {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"Phaze.linux\"")
+		w.Header().Set("Cache-Control", "no-store")
 	}
 	
 	http.ServeFile(w, r, "public/downloads/"+path)
