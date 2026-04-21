@@ -122,6 +122,16 @@ type NexusMessage struct {
 	QRToken     string      `json:"qr_token,omitempty"`
 	QRData      string      `json:"qr_data,omitempty"`
 	DeviceInfo  string      `json:"device_info,omitempty"`
+
+	// Envelopes[recipient] = ciphertext body encrypted to that member's key.
+	// Used for group E2EE: the client fans out per-member ciphertext so the
+	// server never sees plaintext. Only set on "convo_msg".
+	Envelopes map[string]string `json:"envelopes,omitempty"`
+
+	// PublicKey / KeyFingerprint forwarded so pairwise TOFU still works when
+	// a client is about to send a group envelope to a member it hasn't keyed.
+	PublicKey      []byte `json:"public_key,omitempty"`
+	KeyFingerprint string `json:"key_fingerprint,omitempty"`
 }
 
 type TurnConfig struct {
@@ -1388,22 +1398,31 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 			members := s.conversationMembers(msg.ConvoID)
-			fanout := NexusMessage{
-				Type:    "convo_msg",
-				Sender:  username,
-				Body:    msg.Body,
-				ConvoID: msg.ConvoID,
-			}
 			s.Mu.RLock()
 			for _, m := range members {
 				if m == username {
 					continue
 				}
+				// Prefer per-member envelope so the server never sees plaintext.
+				// Fall back to msg.Body for older clients still using the legacy
+				// plaintext fan-out path.
+				body := msg.Body
+				if msg.Envelopes != nil {
+					if env, ok := msg.Envelopes[m]; ok {
+						body = env
+					}
+				}
+				fanout := NexusMessage{
+					Type:    "convo_msg",
+					Sender:  username,
+					Body:    body,
+					ConvoID: msg.ConvoID,
+				}
 				if c, ok := s.Clients[m]; ok {
 					c.Conn.WriteJSON(fanout)
 				} else {
 					s.DB.Exec(`INSERT INTO offline_messages (sender, recipient, body, msg_type, convo)
-						VALUES (?, ?, ?, 'convo_msg', ?)`, username, m, msg.Body, msg.ConvoID)
+						VALUES (?, ?, ?, 'convo_msg', ?)`, username, m, body, msg.ConvoID)
 				}
 			}
 			s.Mu.RUnlock()

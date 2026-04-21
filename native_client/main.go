@@ -108,6 +108,10 @@ type NexusMessage struct {
 	QRToken        string           `json:"qr_token,omitempty"`
 	QRData         string           `json:"qr_data,omitempty"`
 	DeviceInfo     string           `json:"device_info,omitempty"`
+
+	// Per-member ciphertext for group messages (convo_msg). Server forwards
+	// envelopes[recipient] as Body to each member without ever seeing plaintext.
+	Envelopes map[string]string `json:"envelopes,omitempty"`
 }
 
 type authResult struct {
@@ -170,6 +174,11 @@ type PhazeApp struct {
 	PubKey   *[32]byte
 	PrivKey  *[32]byte
 	PeerKeys map[string]*[32]byte // Cache for peer public keys
+
+	// ConvoMembers[convoID] is the authoritative member list for a group,
+	// populated from convo_info / convo_created messages. Used to fan out
+	// per-member E2EE envelopes on outgoing group messages.
+	ConvoMembers map[string][]string
 
 	// Extended State
 	OpenWindows  map[string]fyne.Window
@@ -295,6 +304,7 @@ func NewPhazeApp() *PhazeApp {
 		Calls:            chat.NewCallManager(),
 		Infra:            PhazeInfra,
 		PeerKeys:         make(map[string]*[32]byte),
+		ConvoMembers:     make(map[string][]string),
 	}
 
 	s.Sentinel = sentinel.NewSentinel(func(issue string) {
@@ -987,6 +997,9 @@ func (s *PhazeApp) HandleIncomingMessage(msg NexusMessage) {
 	case "convo_info", "convo_created":
 		s.DB.Exec(`INSERT OR REPLACE INTO Conversations (identity, displayname, type)
 			VALUES (?, ?, 2)`, msg.ConvoID, msg.ConvoName)
+		if len(msg.Members) > 0 {
+			s.ConvoMembers[msg.ConvoID] = msg.Members
+		}
 		if msg.Type == "convo_created" {
 			s.App.SendNotification(fyne.NewNotification(
 				"New Group Chat",
@@ -1455,7 +1468,30 @@ func (s *PhazeApp) OpenChat(name string) fyne.CanvasObject {
 			if strings.HasPrefix(text, "/me ") {
 				body = "* " + s.Username + " " + strings.TrimPrefix(text, "/me ")
 			}
-			s.SendMessage(NexusMessage{Type: "msg", Sender: s.Username, Recipient: name, Body: body})
+			if isGroup {
+				members := s.ConvoMembers[name]
+				envelopes := make(map[string]string, len(members))
+				for _, m := range members {
+					if m == "" || m == s.Username {
+						continue
+					}
+					if _, haveKey := s.PeerKeys[m]; !haveKey {
+						go s.requestPeerKey(m)
+					}
+					envelopes[m] = s.encryptForPeer(body, m)
+				}
+				s.SendMessage(NexusMessage{
+					Type:      "convo_msg",
+					Sender:    s.Username,
+					ConvoID:   name,
+					Envelopes: envelopes,
+				})
+				ts := time.Now().Unix()
+				s.DB.Exec(`INSERT INTO Messages (chatname, author, body_xml, timestamp, type)
+					VALUES (?, ?, ?, ?, 61)`, name, s.Username, body, ts)
+			} else {
+				s.SendMessage(NexusMessage{Type: "msg", Sender: s.Username, Recipient: name, Body: body})
+			}
 			historyContainer.Add(ui.NewMessageBubble(s.Username, body, true, s.Slicer))
 			scroll.ScrollToBottom()
 		},
