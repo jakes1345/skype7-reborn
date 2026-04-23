@@ -38,7 +38,7 @@ primary_region = "ord"
     protocol = "http"
 
 [[mounts]]
-  source = "phaze_data"
+  source = "nexus_data"
   destination = "/data"
 
 [[vm]]
