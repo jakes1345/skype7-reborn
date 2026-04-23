@@ -148,6 +148,11 @@ type Client struct {
 	// that concurrent writes are undefined behavior, and this server fans
 	// messages out to other clients' conns from unrelated read-loops.
 	writeMu sync.Mutex
+	// msgLimiter throttles inbound WS messages per-connection. The HTTP
+	// rateLimit middleware only covers the upgrade handshake — once WS is
+	// established, a single authed client could otherwise flood the read
+	// loop unbounded.
+	msgLimiter *rate.Limiter
 }
 
 // Send locks the per-connection write mutex and emits a JSON message.
@@ -575,6 +580,15 @@ func (s *NexusServer) sendEmail(to, subject, body string) error {
 	return smtp.SendMail(addr, auth, user, []string{to}, msg)
 }
 
+// sendEmailLogged wraps sendEmail for 'go'-launched calls so SMTP failures
+// land in logs instead of vanishing silently. Use this any time email
+// delivery is not on the caller's synchronous response path.
+func (s *NexusServer) sendEmailLogged(to, subject, body string) {
+	if err := s.sendEmail(to, subject, body); err != nil {
+		log.Printf("[mail] send to %s subject %q failed: %v", to, subject, err)
+	}
+}
+
 func (s *NexusServer) authenticateUser(username, password string) bool {
 	var hash string
 	var isVerified bool
@@ -735,8 +749,10 @@ func (s *NexusServer) getPendingRequests(username string) []string {
 // ---------- Offline Messages ----------
 
 func (s *NexusServer) storeOfflineMessage(sender, recipient, body, msgType string) {
-	s.DB.Exec("INSERT INTO offline_messages (sender, recipient, body, msg_type) VALUES (?, ?, ?, ?)",
-		sender, recipient, body, msgType)
+	if _, err := s.DB.Exec("INSERT INTO offline_messages (sender, recipient, body, msg_type) VALUES (?, ?, ?, ?)",
+		sender, recipient, body, msgType); err != nil {
+		log.Printf("[offline] store %s->%s (%s) failed: %v", sender, recipient, msgType, err)
+	}
 }
 
 func (s *NexusServer) deliverOfflineMessages(username string) {
@@ -889,7 +905,12 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 
 	// client owns the write mutex for this connection. Pre-auth writes use
 	// it even before the client is registered in s.Clients.
-	client := &Client{Conn: ws}
+	// msgLimiter: 20 msg/s sustained, burst 40. Accommodates typing
+	// indicators + rapid sends without permitting a tight spam loop.
+	client := &Client{
+		Conn:       ws,
+		msgLimiter: rate.NewLimiter(rate.Limit(20), 40),
+	}
 
 	var username string
 
@@ -906,6 +927,13 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				log.Printf("User %s disconnected", username)
 			}
 			return
+		}
+
+		// Per-connection rate limit. Drop silently on overflow: an authed
+		// spammer shouldn't learn they've tripped the limiter.
+		if !client.msgLimiter.Allow() {
+			log.Printf("[ratelimit] dropping %q from %s", msg.Type, username)
+			continue
 		}
 
 		switch msg.Type {
@@ -933,7 +961,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				client.Send(NexusMessage{Type: "register_result", Error: "Username already taken or database error"})
 			} else {
 				log.Printf("New user registered: %s (%s) - Code: %s", msg.Sender, msg.Email, code)
-				go s.sendEmail(msg.Email, "Activate your Phaze Identity",
+				go s.sendEmailLogged(msg.Email, "Activate your Phaze Identity",
 					"<h1>Welcome to Phaze</h1><p>Your activation code is: <b>"+code+"</b></p><p>Enter this in the app to start using the mesh.</p>")
 				client.Send(NexusMessage{Type: "register_result", Status: "pending_verification"})
 			}
@@ -1104,7 +1132,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				client.Send(NexusMessage{Type: "register_result", Error: "Database error"})
 				continue
 			}
-			go s.sendEmail(email, "Your Phaze activation code",
+			go s.sendEmailLogged(email, "Your Phaze activation code",
 				"<h1>New code</h1><p>Your activation code is: <b>"+code+"</b></p>")
 			client.Send(NexusMessage{Type: "register_result", Status: "code_resent"})
 
@@ -1158,7 +1186,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 					return
 				}
 				link := "https://phazechat.world/reset?token=" + tok
-				_ = s.sendEmail(addr, "Reset your Phaze password",
+				s.sendEmailLogged(addr, "Reset your Phaze password",
 					"<h1>Reset password</h1><p>Hello "+user+",</p><p>Click to reset (valid 1 hour): <a href=\""+link+"\">"+link+"</a></p>")
 			}(msg.Email)
 			client.Send(NexusMessage{Type: "forgot_password_result", Status: "sent"})
@@ -1396,7 +1424,24 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			if username == "" {
 				continue
 			}
-			if err := s.createConversation(msg.ConvoID, msg.ConvoName, username, msg.Members); err != nil {
+			// Only accept members who are already accepted friends of the
+			// creator. Without this, any authed user can spam strangers into
+			// unsolicited group chats. Self is always allowed.
+			friendSet := map[string]bool{username: true}
+			for _, f := range s.getFriends(username) {
+				friendSet[f] = true
+			}
+			eligible := msg.Members[:0:0]
+			for _, m := range msg.Members {
+				if friendSet[m] {
+					eligible = append(eligible, m)
+				}
+			}
+			if len(eligible) == 0 {
+				client.Send(NexusMessage{Type: "convo_error", Error: "No eligible members — add friends first"})
+				continue
+			}
+			if err := s.createConversation(msg.ConvoID, msg.ConvoName, username, eligible); err != nil {
 				client.Send(NexusMessage{Type: "convo_error", Error: err.Error()})
 				continue
 			}
