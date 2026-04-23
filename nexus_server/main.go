@@ -144,6 +144,20 @@ type Client struct {
 	Conn     *websocket.Conn
 	Username string
 	Status   string
+	// writeMu serializes all writes to Conn. gorilla/websocket is explicit
+	// that concurrent writes are undefined behavior, and this server fans
+	// messages out to other clients' conns from unrelated read-loops.
+	writeMu sync.Mutex
+}
+
+// Send locks the per-connection write mutex and emits a JSON message.
+// Every outbound WebSocket write goes through here — do not call
+// WriteJSON on the underlying connection directly.
+func (c *Client) Send(m NexusMessage) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	conn := c.Conn
+	return conn.WriteJSON(m)
 }
 
 type NexusServer struct {
@@ -744,7 +758,7 @@ func (s *NexusServer) deliverOfflineMessages(username string) {
 		var id int64
 		var sender, body, msgType, createdAt string
 		rows.Scan(&id, &sender, &body, &msgType, &createdAt)
-		client.Conn.WriteJSON(NexusMessage{
+		client.Send(NexusMessage{
 			Type:   msgType,
 			Sender: sender,
 			Body:   body,
@@ -771,7 +785,7 @@ func (s *NexusServer) broadcastPresence(username, status string) {
 
 	for _, friend := range friends {
 		if client, ok := s.Clients[friend]; ok {
-			client.Conn.WriteJSON(NexusMessage{
+			client.Send(NexusMessage{
 				Type:   "presence",
 				Sender: username,
 				Status: status,
@@ -873,6 +887,10 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 	}
 	defer ws.Close()
 
+	// client owns the write mutex for this connection. Pre-auth writes use
+	// it even before the client is registered in s.Clients.
+	client := &Client{Conn: ws}
+
 	var username string
 
 	for {
@@ -897,34 +915,34 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			var verified int
 			err := s.DB.QueryRow("SELECT phone_verified FROM users WHERE username = ? AND phone_number = ?", username, number).Scan(&verified)
 			if err != nil || verified == 0 {
-				ws.WriteJSON(NexusMessage{Type: "pstn_status", Error: "Caller identity not verified. Please link your phone in Settings."})
+				client.Send(NexusMessage{Type: "pstn_status", Error: "Caller identity not verified. Please link your phone in Settings."})
 				continue
 			}
 
 			log.Printf("[PSTN-SECURE] User %s initiating call to %s", msg.Sender, number)
 			err = s.initiateTwilioCall(number)
 			if err != nil {
-				ws.WriteJSON(NexusMessage{Type: "pstn_status", Error: "Telephony error: " + err.Error()})
+				client.Send(NexusMessage{Type: "pstn_status", Error: "Telephony error: " + err.Error()})
 			} else {
-				ws.WriteJSON(NexusMessage{Type: "pstn_status", Status: "Connecting via Sovereign Bridge..."})
+				client.Send(NexusMessage{Type: "pstn_status", Status: "Connecting via Sovereign Bridge..."})
 			}
 
 		case "register":
 			code, err := s.registerUser(msg.Sender, msg.Email, msg.Mood, msg.Body)
 			if err != nil {
-				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "Username already taken or database error"})
+				client.Send(NexusMessage{Type: "register_result", Error: "Username already taken or database error"})
 			} else {
 				log.Printf("New user registered: %s (%s) - Code: %s", msg.Sender, msg.Email, code)
 				go s.sendEmail(msg.Email, "Activate your Phaze Identity",
 					"<h1>Welcome to Phaze</h1><p>Your activation code is: <b>"+code+"</b></p><p>Enter this in the app to start using the mesh.</p>")
-				ws.WriteJSON(NexusMessage{Type: "register_result", Status: "pending_verification"})
+				client.Send(NexusMessage{Type: "register_result", Status: "pending_verification"})
 			}
 
 		case "verify_email":
 			if s.verifyUser(msg.Sender, msg.Body) {
-				ws.WriteJSON(NexusMessage{Type: "verify_result", Status: "ok"})
+				client.Send(NexusMessage{Type: "verify_result", Status: "ok"})
 			} else {
-				ws.WriteJSON(NexusMessage{Type: "verify_result", Error: "Invalid verification code"})
+				client.Send(NexusMessage{Type: "verify_result", Error: "Invalid verification code"})
 			}
 
 		case "status_update":
@@ -941,11 +959,11 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
 			_, err := s.DB.Exec("UPDATE users SET verification_code = ?, phone_number = ? WHERE username = ?", code, number, username)
 			if err != nil {
-				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Error: "Update failed"})
+				client.Send(NexusMessage{Type: "phone_link_result", Error: "Update failed"})
 			} else {
 				log.Printf("[SMS] Sending verification to %s: %s", number, code)
 				go s.sendSMS(number, "Your Phaze verification code is: "+code)
-				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Status: "code_sent"})
+				client.Send(NexusMessage{Type: "phone_link_result", Status: "code_sent"})
 			}
 
 		case "verify_phone_link":
@@ -953,10 +971,10 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			err := s.DB.QueryRow("SELECT verification_code FROM users WHERE username = ?", username).Scan(&dbCode)
 			if err == nil && dbCode == msg.Body {
 				s.DB.Exec("UPDATE users SET phone_verified = 1, verification_code = NULL WHERE username = ?", username)
-				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Status: "verified"})
+				client.Send(NexusMessage{Type: "phone_link_result", Status: "verified"})
 			} else {
 				s.DB.Exec("UPDATE users SET verification_code = NULL WHERE username = ?", username)
-				ws.WriteJSON(NexusMessage{Type: "phone_link_result", Error: "Invalid code. Security lockout: please request a new code."})
+				client.Send(NexusMessage{Type: "phone_link_result", Error: "Invalid code. Security lockout: please request a new code."})
 			}
 
 		case "update_profile":
@@ -964,39 +982,41 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			_, err := s.DB.Exec("UPDATE users SET mood = ?, display_name = ? WHERE username = ?",
 				msg.Mood, msg.DisplayName, msg.Sender)
 			if err != nil {
-				ws.WriteJSON(NexusMessage{Type: "update_result", Error: "Update failed"})
+				client.Send(NexusMessage{Type: "update_result", Error: "Update failed"})
 			} else {
 				log.Printf("Profile updated for %s: %s | %s", msg.Sender, msg.DisplayName, msg.Mood)
-				ws.WriteJSON(NexusMessage{Type: "update_result", Status: "ok"})
+				client.Send(NexusMessage{Type: "update_result", Status: "ok"})
 				// Broadcast this change to all online friends
 				s.broadcastProfileUpdate(msg.Sender, msg.DisplayName, msg.Mood)
 			}
 
 		case "auth":
 			if msg.Body == "" {
-				ws.WriteJSON(NexusMessage{Type: "auth_result", Error: "Password required"})
+				client.Send(NexusMessage{Type: "auth_result", Error: "Password required"})
 				continue
 			}
 			if !s.authenticateUser(msg.Sender, msg.Body) {
-				ws.WriteJSON(NexusMessage{Type: "auth_result", Error: "Invalid username or password"})
+				client.Send(NexusMessage{Type: "auth_result", Error: "Invalid username or password"})
 				continue
 			}
 			if !s.verifyTOTP(msg.Sender, msg.TOTPCode) {
-				ws.WriteJSON(NexusMessage{Type: "auth_result", Error: "2FA code required or invalid", Status: "totp_required"})
+				client.Send(NexusMessage{Type: "auth_result", Error: "2FA code required or invalid", Status: "totp_required"})
 				continue
 			}
 			username = msg.Sender
 			sessTok, _ := s.issueSessionToken(username, msg.DeviceInfo)
 			s.Mu.Lock()
 			if existing, ok := s.Clients[username]; ok {
-				existing.Conn.WriteJSON(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
+				existing.Send(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
 				existing.Conn.Close()
 			}
-			s.Clients[username] = &Client{Conn: ws, Username: username, Status: "Online"}
+			client.Username = username
+			client.Status = "Online"
+			s.Clients[username] = client
 			s.Mu.Unlock()
 			log.Printf("User %s authenticated", username)
 
-			ws.WriteJSON(NexusMessage{
+			client.Send(NexusMessage{
 				Type:       "auth_result",
 				Status:     "ok",
 				Sender:     username,
@@ -1013,13 +1033,13 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			// Send pending friend requests
 			pending := s.getPendingRequests(username)
 			if len(pending) > 0 {
-				ws.WriteJSON(NexusMessage{Type: "pending_requests", Results: pending})
+				client.Send(NexusMessage{Type: "pending_requests", Results: pending})
 			}
 
 			// Send conversations this user belongs to
 			for _, cm := range s.userConversations(username) {
 				cm.Type = "convo_info"
-				ws.WriteJSON(cm)
+				client.Send(cm)
 			}
 
 			// Send friends list with online status
@@ -1031,25 +1051,27 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 					status = c.Status
 				}
 				s.Mu.RUnlock()
-				ws.WriteJSON(NexusMessage{Type: "friend_status", Sender: f, Status: status})
+				client.Send(NexusMessage{Type: "friend_status", Sender: f, Status: status})
 			}
 
 		case "session_auth":
 			u := s.sessionUsername(msg.QRToken)
 			if u == "" {
-				ws.WriteJSON(NexusMessage{Type: "auth_result", Error: "Session expired, please log in"})
+				client.Send(NexusMessage{Type: "auth_result", Error: "Session expired, please log in"})
 				continue
 			}
 			username = u
 			s.Mu.Lock()
 			if existing, ok := s.Clients[username]; ok {
-				existing.Conn.WriteJSON(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
+				existing.Send(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
 				existing.Conn.Close()
 			}
-			s.Clients[username] = &Client{Conn: ws, Username: username, Status: "Online"}
+			client.Username = username
+			client.Status = "Online"
+			s.Clients[username] = client
 			s.Mu.Unlock()
 			log.Printf("User %s resumed via session token", username)
-			ws.WriteJSON(NexusMessage{
+			client.Send(NexusMessage{
 				Type:       "auth_result",
 				Status:     "ok",
 				Sender:     username,
@@ -1064,68 +1086,68 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 			s.revokeSession(msg.QRToken)
-			ws.WriteJSON(NexusMessage{Type: "session_revoked", Status: "ok"})
+			client.Send(NexusMessage{Type: "session_revoked", Status: "ok"})
 
 		case "resend_verification":
 			var email string
 			err := s.DB.QueryRow("SELECT email FROM users WHERE username = ?", msg.Sender).Scan(&email)
 			if err != nil || email == "" {
-				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "User not found"})
+				client.Send(NexusMessage{Type: "register_result", Error: "User not found"})
 				continue
 			}
 			code, err := randDigits(6)
 			if err != nil {
-				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "Internal error"})
+				client.Send(NexusMessage{Type: "register_result", Error: "Internal error"})
 				continue
 			}
 			if _, err := s.DB.Exec("UPDATE users SET verification_code = ? WHERE username = ?", code, msg.Sender); err != nil {
-				ws.WriteJSON(NexusMessage{Type: "register_result", Error: "Database error"})
+				client.Send(NexusMessage{Type: "register_result", Error: "Database error"})
 				continue
 			}
 			go s.sendEmail(email, "Your Phaze activation code",
 				"<h1>New code</h1><p>Your activation code is: <b>"+code+"</b></p>")
-			ws.WriteJSON(NexusMessage{Type: "register_result", Status: "code_resent"})
+			client.Send(NexusMessage{Type: "register_result", Status: "code_resent"})
 
 		case "enable_totp":
 			if username == "" {
-				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Not authenticated"})
+				client.Send(NexusMessage{Type: "totp_result", Error: "Not authenticated"})
 				continue
 			}
 			uri, secret, err := s.generateTOTPURI(username)
 			if err != nil {
-				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Could not generate secret"})
+				client.Send(NexusMessage{Type: "totp_result", Error: "Could not generate secret"})
 				continue
 			}
 			// Stash secret pending verification; set enabled=0 so auth still allows login until confirmed.
 			s.DB.Exec("UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE username = ?", secret, username)
-			ws.WriteJSON(NexusMessage{Type: "totp_result", Status: "pending_confirm", TOTPURI: uri})
+			client.Send(NexusMessage{Type: "totp_result", Status: "pending_confirm", TOTPURI: uri})
 
 		case "confirm_totp":
 			if username == "" {
-				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Not authenticated"})
+				client.Send(NexusMessage{Type: "totp_result", Error: "Not authenticated"})
 				continue
 			}
 			secret, _ := s.totpStatus(username)
 			if secret == "" {
-				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "No pending TOTP enrollment"})
+				client.Send(NexusMessage{Type: "totp_result", Error: "No pending TOTP enrollment"})
 				continue
 			}
 			if !s.enableTOTP(username, secret, msg.TOTPCode) {
-				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Invalid code"})
+				client.Send(NexusMessage{Type: "totp_result", Error: "Invalid code"})
 				continue
 			}
-			ws.WriteJSON(NexusMessage{Type: "totp_result", Status: "enabled"})
+			client.Send(NexusMessage{Type: "totp_result", Status: "enabled"})
 
 		case "disable_totp":
 			if username == "" {
 				continue
 			}
 			if !s.authenticateUser(username, msg.Body) {
-				ws.WriteJSON(NexusMessage{Type: "totp_result", Error: "Password required"})
+				client.Send(NexusMessage{Type: "totp_result", Error: "Password required"})
 				continue
 			}
 			s.disableTOTP(username)
-			ws.WriteJSON(NexusMessage{Type: "totp_result", Status: "disabled"})
+			client.Send(NexusMessage{Type: "totp_result", Status: "disabled"})
 
 		case "forgot_password":
 			// Accept email in msg.Email; always ack "sent" to avoid user enumeration.
@@ -1139,22 +1161,22 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				_ = s.sendEmail(addr, "Reset your Phaze password",
 					"<h1>Reset password</h1><p>Hello "+user+",</p><p>Click to reset (valid 1 hour): <a href=\""+link+"\">"+link+"</a></p>")
 			}(msg.Email)
-			ws.WriteJSON(NexusMessage{Type: "forgot_password_result", Status: "sent"})
+			client.Send(NexusMessage{Type: "forgot_password_result", Status: "sent"})
 
 		case "reset_password":
 			if err := s.consumePasswordReset(msg.QRToken, msg.Body); err != nil {
-				ws.WriteJSON(NexusMessage{Type: "reset_password_result", Error: err.Error()})
+				client.Send(NexusMessage{Type: "reset_password_result", Error: err.Error()})
 				continue
 			}
-			ws.WriteJSON(NexusMessage{Type: "reset_password_result", Status: "ok"})
+			client.Send(NexusMessage{Type: "reset_password_result", Status: "ok"})
 
 		case "qr_login_create":
 			tok, err := s.createQRLogin()
 			if err != nil {
-				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Error: "Could not create QR token"})
+				client.Send(NexusMessage{Type: "qr_login_result", Error: "Could not create QR token"})
 				continue
 			}
-			ws.WriteJSON(NexusMessage{
+			client.Send(NexusMessage{
 				Type:    "qr_login_result",
 				Status:  "pending",
 				QRToken: tok,
@@ -1163,32 +1185,34 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 
 		case "qr_login_approve":
 			if username == "" {
-				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Error: "Not authenticated"})
+				client.Send(NexusMessage{Type: "qr_login_result", Error: "Not authenticated"})
 				continue
 			}
 			if err := s.approveQRLogin(msg.QRToken, username, msg.DeviceInfo); err != nil {
-				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Error: err.Error()})
+				client.Send(NexusMessage{Type: "qr_login_result", Error: err.Error()})
 				continue
 			}
-			ws.WriteJSON(NexusMessage{Type: "qr_login_result", Status: "approved"})
+			client.Send(NexusMessage{Type: "qr_login_result", Status: "approved"})
 
 		case "qr_login_check":
 			u, sess, approved := s.checkQRLogin(msg.QRToken)
 			if !approved {
-				ws.WriteJSON(NexusMessage{Type: "qr_login_result", Status: "pending", QRToken: msg.QRToken})
+				client.Send(NexusMessage{Type: "qr_login_result", Status: "pending", QRToken: msg.QRToken})
 				continue
 			}
 			// Promote this socket onto the approved session.
 			username = u
 			s.Mu.Lock()
 			if existing, ok := s.Clients[username]; ok {
-				existing.Conn.WriteJSON(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
+				existing.Send(NexusMessage{Type: "kicked", Body: "Logged in from another location"})
 				existing.Conn.Close()
 			}
-			s.Clients[username] = &Client{Conn: ws, Username: username, Status: "Online"}
+			client.Username = username
+			client.Status = "Online"
+			s.Clients[username] = client
 			s.Mu.Unlock()
 			log.Printf("User %s logged in via QR", username)
-			ws.WriteJSON(NexusMessage{
+			client.Send(NexusMessage{
 				Type:       "auth_result",
 				Status:     "ok",
 				Sender:     username,
@@ -1205,14 +1229,14 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			// Authoritative sender = authenticated session, not client claim
 			msg.Sender = username
 			if msg.Recipient == "PhazeBot" {
-				s.handleBotMessage(ws, msg)
+				s.handleBotMessage(client, msg)
 				continue
 			}
 			// Trust & safety: drop if either party has blocked the other.
 			// Sender sees a benign delivered_offline status — no oracle leak.
 			if s.isBlocked(msg.Recipient, msg.Sender) || s.isBlocked(msg.Sender, msg.Recipient) {
 				log.Printf("[block] dropped %s -> %s", msg.Sender, msg.Recipient)
-				ws.WriteJSON(NexusMessage{
+				client.Send(NexusMessage{
 					Type: "msg_status", Body: "delivered_offline", Sender: msg.Recipient,
 				})
 				continue
@@ -1223,10 +1247,10 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			s.Mu.RUnlock()
 
 			if online {
-				recipientClient.Conn.WriteJSON(msg)
+				recipientClient.Send(msg)
 			} else {
 				s.storeOfflineMessage(msg.Sender, msg.Recipient, msg.Body, "msg")
-				ws.WriteJSON(NexusMessage{
+				client.Send(NexusMessage{
 					Type:   "msg_status",
 					Body:   "delivered_offline",
 					Sender: msg.Recipient,
@@ -1238,10 +1262,10 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 			if err := s.blockUser(username, msg.Recipient); err != nil {
-				ws.WriteJSON(NexusMessage{Type: "block_result", Error: err.Error()})
+				client.Send(NexusMessage{Type: "block_result", Error: err.Error()})
 			} else {
 				log.Printf("[block] %s blocked %s", username, msg.Recipient)
-				ws.WriteJSON(NexusMessage{Type: "block_result", Status: "blocked", Recipient: msg.Recipient})
+				client.Send(NexusMessage{Type: "block_result", Status: "blocked", Recipient: msg.Recipient})
 			}
 
 		case "unblock":
@@ -1250,16 +1274,16 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			log.Printf("[block] %s unblocking %s", username, msg.Recipient)
 			if err := s.unblockUser(username, msg.Recipient); err != nil {
-				ws.WriteJSON(NexusMessage{Type: "block_result", Error: err.Error()})
+				client.Send(NexusMessage{Type: "block_result", Error: err.Error()})
 			} else {
-				ws.WriteJSON(NexusMessage{Type: "block_result", Status: "unblocked", Recipient: msg.Recipient})
+				client.Send(NexusMessage{Type: "block_result", Status: "unblocked", Recipient: msg.Recipient})
 			}
 
 		case "list_blocks":
 			if username == "" {
 				continue
 			}
-			ws.WriteJSON(NexusMessage{Type: "blocks", Results: s.listBlocks(username)})
+			client.Send(NexusMessage{Type: "blocks", Results: s.listBlocks(username)})
 
 		case "report_abuse":
 			if username == "" {
@@ -1267,10 +1291,10 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			// msg.Recipient = subject (offending user), msg.Status = reason tag, msg.Body = freeform
 			if err := s.recordAbuseReport(username, msg.Recipient, msg.Status, msg.Body); err != nil {
-				ws.WriteJSON(NexusMessage{Type: "report_result", Error: err.Error()})
+				client.Send(NexusMessage{Type: "report_result", Error: err.Error()})
 			} else {
 				log.Printf("[abuse] report from %s about %s reason=%s", username, msg.Recipient, msg.Status)
-				ws.WriteJSON(NexusMessage{Type: "report_result", Status: "received"})
+				client.Send(NexusMessage{Type: "report_result", Status: "received"})
 			}
 
 		case "typing":
@@ -1279,7 +1303,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			s.Mu.RLock()
 			if recipientClient, ok := s.Clients[msg.Recipient]; ok {
-				recipientClient.Conn.WriteJSON(NexusMessage{
+				recipientClient.Send(NexusMessage{
 					Type:   "typing",
 					Sender: username,
 				})
@@ -1304,7 +1328,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			log.Printf("User %s searching for: %s", username, msg.Body)
 			results := s.searchUsers(msg.Body, username)
-			ws.WriteJSON(NexusMessage{
+			client.Send(NexusMessage{
 				Type:    "search_results",
 				Results: results,
 			})
@@ -1322,7 +1346,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			// Notify recipient if online
 			s.Mu.RLock()
 			if recipientClient, ok := s.Clients[msg.Recipient]; ok {
-				recipientClient.Conn.WriteJSON(NexusMessage{
+				recipientClient.Send(NexusMessage{
 					Type:   "friend_request",
 					Sender: username,
 				})
@@ -1342,7 +1366,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			// Notify the requester
 			s.Mu.RLock()
 			if requesterClient, ok := s.Clients[msg.Sender]; ok {
-				requesterClient.Conn.WriteJSON(NexusMessage{
+				requesterClient.Send(NexusMessage{
 					Type:   "friend_accepted",
 					Sender: username,
 				})
@@ -1364,7 +1388,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			log.Printf("Friend removed: %s <-> %s", username, msg.Recipient)
 			s.Mu.RLock()
 			if peer, ok := s.Clients[msg.Recipient]; ok {
-				peer.Conn.WriteJSON(NexusMessage{Type: "friend_removed", Sender: username})
+				peer.Send(NexusMessage{Type: "friend_removed", Sender: username})
 			}
 			s.Mu.RUnlock()
 
@@ -1373,7 +1397,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 			if err := s.createConversation(msg.ConvoID, msg.ConvoName, username, msg.Members); err != nil {
-				ws.WriteJSON(NexusMessage{Type: "convo_error", Error: err.Error()})
+				client.Send(NexusMessage{Type: "convo_error", Error: err.Error()})
 				continue
 			}
 			members := s.conversationMembers(msg.ConvoID)
@@ -1387,7 +1411,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			s.Mu.RLock()
 			for _, m := range members {
 				if c, ok := s.Clients[m]; ok {
-					c.Conn.WriteJSON(notice)
+					c.Send(notice)
 				}
 			}
 			s.Mu.RUnlock()
@@ -1419,7 +1443,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 					ConvoID: msg.ConvoID,
 				}
 				if c, ok := s.Clients[m]; ok {
-					c.Conn.WriteJSON(fanout)
+					c.Send(fanout)
 				} else {
 					s.DB.Exec(`INSERT INTO offline_messages (sender, recipient, body, msg_type, convo)
 						VALUES (?, ?, ?, 'convo_msg', ?)`, username, m, body, msg.ConvoID)
@@ -1436,7 +1460,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			s.Mu.RLock()
 			for _, m := range members {
 				if c, ok := s.Clients[m]; ok {
-					c.Conn.WriteJSON(NexusMessage{
+					c.Send(NexusMessage{
 						Type: "convo_left", Sender: username, ConvoID: msg.ConvoID,
 					})
 				}
@@ -1449,7 +1473,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			s.Mu.RLock()
 			if peer, ok := s.Clients[msg.Recipient]; ok {
-				peer.Conn.WriteJSON(NexusMessage{
+				peer.Send(NexusMessage{
 					Type: "read_receipt", Sender: username, Body: msg.Body,
 				})
 			}
@@ -1462,9 +1486,9 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			log.Printf("Signal [%s] from %s to %s", msg.Type, msg.Sender, msg.Recipient)
 			s.Mu.RLock()
 			if recipientClient, ok := s.Clients[msg.Recipient]; ok {
-				recipientClient.Conn.WriteJSON(msg)
+				recipientClient.Send(msg)
 			} else {
-				ws.WriteJSON(NexusMessage{
+				client.Send(NexusMessage{
 					Type:  "call_error",
 					Body:  "User is offline",
 					Error: msg.Recipient + " is not available",
@@ -1478,7 +1502,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			s.Mu.RLock()
 			if recipientClient, ok := s.Clients[msg.Recipient]; ok {
-				recipientClient.Conn.WriteJSON(msg)
+				recipientClient.Send(msg)
 			}
 			s.Mu.RUnlock()
 
@@ -1817,7 +1841,7 @@ func (s *NexusServer) broadcastProfileUpdate(username, displayName, mood string)
 	}
 	for _, client := range s.Clients {
 		if client.Username != username {
-			client.Conn.WriteJSON(msg)
+			client.Send(msg)
 		}
 	}
 }
@@ -1857,7 +1881,7 @@ func (s *NexusServer) avatarHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-func (s *NexusServer) handleBotMessage(ws *websocket.Conn, msg NexusMessage) {
+func (s *NexusServer) handleBotMessage(client *Client, msg NexusMessage) {
 	reply := NexusMessage{
 		Type:      "msg",
 		Sender:    "PhazeBot",
@@ -1877,7 +1901,7 @@ func (s *NexusServer) handleBotMessage(ws *websocket.Conn, msg NexusMessage) {
 	case cmd == "/pstn":
 		reply.Body = "PSTN Bridge is ACTIVE. Link your phone in Settings to use Caller ID."
 	}
-	ws.WriteJSON(reply)
+	client.Send(reply)
 }
 
 func (s *NexusServer) twimlHandler(w http.ResponseWriter, r *http.Request) {
