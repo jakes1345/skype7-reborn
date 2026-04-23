@@ -658,6 +658,16 @@ func (s *NexusServer) rejectFriendRequest(from, to string) error {
 	return err
 }
 
+// areFriends reports whether two usernames have an accepted friendship
+// record in either direction.
+func (s *NexusServer) areFriends(a, b string) bool {
+	var n int
+	s.DB.QueryRow(`SELECT COUNT(*) FROM friends
+		WHERE status = 'accepted' AND ((user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?))`,
+		a, b, b, a).Scan(&n)
+	return n > 0
+}
+
 func (s *NexusServer) removeFriend(a, b string) error {
 	_, err := s.DB.Exec(`DELETE FROM friends
 		WHERE (user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?)`,
@@ -920,11 +930,26 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			log.Printf("Read error: %v", err)
 			if username != "" {
+				// Compare-and-swap delete: only remove the map entry if it
+				// still points at *this* connection. A concurrent login from
+				// the same user kicks the previous session via Conn.Close(),
+				// which wakes *this* read-loop with an error — without the
+				// guard below we'd delete the freshly-installed new session
+				// and mark the user offline even though they're online on
+				// another device.
 				s.Mu.Lock()
-				delete(s.Clients, username)
+				current, ok := s.Clients[username]
+				weWereReplaced := ok && current != client
+				if ok && current == client {
+					delete(s.Clients, username)
+				}
 				s.Mu.Unlock()
-				s.broadcastPresence(username, "Offline")
-				log.Printf("User %s disconnected", username)
+				if !weWereReplaced {
+					s.broadcastPresence(username, "Offline")
+					log.Printf("User %s disconnected", username)
+				} else {
+					log.Printf("User %s old session closed (replaced by newer login)", username)
+				}
 			}
 			return
 		}
@@ -1514,6 +1539,14 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 
 		case "read_receipt":
 			if username == "" {
+				continue
+			}
+			// Only friends can send each other read receipts. Without this
+			// gate, any authed user could spam fake "I read your message"
+			// notifications to strangers — low-impact but a free side-channel.
+			// Group read receipts aren't modeled on the wire (no ConvoID
+			// field in receipts) so we skip them for now.
+			if !s.areFriends(username, msg.Recipient) {
 				continue
 			}
 			s.Mu.RLock()
