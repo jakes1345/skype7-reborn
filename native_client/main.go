@@ -1418,19 +1418,16 @@ func (s *PhazeApp) openCallWindow(name, initialStatus string) {
 	callWin.Show()
 
 	go func() {
-		for i := 0; i < 30; i++ {
-			time.Sleep(1 * time.Second)
-			statusLabel.SetText("Connected P2P")
-			callTimer.Show()
-			callStart = time.Now()
-			timerTicker = time.NewTicker(1 * time.Second)
-			for range timerTicker.C {
-				elapsed := time.Since(callStart)
-				mins := int(elapsed.Minutes())
-				secs := int(elapsed.Seconds()) % 60
-				callTimer.SetText(fmt.Sprintf("%02d:%02d", mins, secs))
-			}
-			return
+		time.Sleep(1 * time.Second)
+		statusLabel.SetText("Connected P2P")
+		callTimer.Show()
+		callStart = time.Now()
+		timerTicker = time.NewTicker(1 * time.Second)
+		for range timerTicker.C {
+			elapsed := time.Since(callStart)
+			mins := int(elapsed.Minutes())
+			secs := int(elapsed.Seconds()) % 60
+			callTimer.SetText(fmt.Sprintf("%02d:%02d", mins, secs))
 		}
 	}()
 }
