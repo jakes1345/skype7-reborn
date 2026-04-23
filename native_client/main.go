@@ -846,6 +846,77 @@ func (s *PhazeApp) HandleIncomingMessage(msg NexusMessage) {
 			dialog.ShowInformation("Phaze", "If an account matches, a reset link has been emailed.", s.MainWindow)
 		})
 
+	case "reset_password_result":
+		fyne.Do(func() {
+			if msg.Error != "" {
+				dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow)
+			} else {
+				dialog.ShowInformation("Phaze", "Password reset. You can log in with your new password.", s.MainWindow)
+			}
+		})
+
+	case "verify_result":
+		fyne.Do(func() {
+			if msg.Error != "" {
+				dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow)
+			} else {
+				dialog.ShowInformation("Phaze", "Email verified. You can now sign in.", s.MainWindow)
+			}
+		})
+
+	case "update_result":
+		if msg.Error != "" {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow) })
+		}
+
+	case "phone_link_result":
+		fyne.Do(func() {
+			if msg.Error != "" {
+				dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow)
+				return
+			}
+			switch msg.Status {
+			case "code_sent":
+				dialog.ShowInformation("Phaze", "Verification code sent to your phone.", s.MainWindow)
+			case "verified":
+				dialog.ShowInformation("Phaze", "Phone number linked.", s.MainWindow)
+			}
+		})
+
+	case "pstn_status":
+		if msg.Error != "" {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow) })
+		} else if msg.Status != "" {
+			log.Printf("[pstn] %s", msg.Status)
+		}
+
+	case "block_result":
+		if msg.Error != "" {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow) })
+		} else {
+			log.Printf("[block] %s %s", msg.Status, msg.Recipient)
+		}
+
+	case "blocks":
+		log.Printf("[block] server reports %d blocks", len(msg.Results))
+
+	case "report_result":
+		fyne.Do(func() {
+			if msg.Error != "" {
+				dialog.ShowError(fmt.Errorf("%s", msg.Error), s.MainWindow)
+			} else {
+				dialog.ShowInformation("Phaze", "Report received. Our team will review it.", s.MainWindow)
+			}
+		})
+
+	case "session_revoked":
+		log.Printf("[session] revoked by server")
+
+	case "convo_error":
+		fyne.Do(func() {
+			dialog.ShowError(fmt.Errorf("group chat: %s", msg.Error), s.MainWindow)
+		})
+
 	case "msg":
 		s.PlaySound("MessageIncoming.wav")
 		bodyText := msg.Body
@@ -1038,6 +1109,9 @@ func (s *PhazeApp) HandleIncomingMessage(msg NexusMessage) {
 		} else {
 			log.Println("Registration successful")
 		}
+
+	default:
+		log.Printf("[ws] unhandled message type %q from %s", msg.Type, msg.Sender)
 	}
 }
 
