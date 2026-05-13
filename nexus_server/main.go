@@ -805,18 +805,26 @@ func (s *NexusServer) deliverOfflineMessages(username string) {
 
 // ---------- Presence ----------
 
-func (s *NexusServer) broadcastPresence(username, status string) {
+// broadcastPresence notifies accepted friends of a status change. When pub
+// is 32 bytes, the same public key material native clients attach to presence
+// is forwarded so browser clients can complete NaCl TOFU handshakes.
+func (s *NexusServer) broadcastPresence(username, status string, pub []byte, keyFP string) {
 	friends := s.getFriends(username)
 	s.Mu.RLock()
 	defer s.Mu.RUnlock()
 
 	for _, friend := range friends {
-		if client, ok := s.Clients[friend]; ok {
-			client.Send(NexusMessage{
+		if c, ok := s.Clients[friend]; ok {
+			out := NexusMessage{
 				Type:   "presence",
 				Sender: username,
 				Status: status,
-			})
+			}
+			if len(pub) == 32 {
+				out.PublicKey = append([]byte(nil), pub...)
+				out.KeyFingerprint = keyFP
+			}
+			c.Send(out)
 		}
 	}
 }
@@ -946,7 +954,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				}
 				s.Mu.Unlock()
 				if !weWereReplaced {
-					s.broadcastPresence(username, "Offline")
+					s.broadcastPresence(username, "Offline", nil, "")
 					log.Printf("User %s disconnected", username)
 				} else {
 					log.Printf("User %s old session closed (replaced by newer login)", username)
@@ -1006,7 +1014,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				log.Printf("User %s changed status to %s", username, msg.Body)
 			}
 			s.Mu.Unlock()
-			s.broadcastPresence(username, msg.Body)
+			s.broadcastPresence(username, msg.Body, nil, "")
 
 		case "request_phone_link":
 			number := msg.Body
@@ -1079,7 +1087,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			})
 
 			// Broadcast online presence to friends
-			s.broadcastPresence(username, "Online")
+			s.broadcastPresence(username, "Online", nil, "")
 
 			// Deliver any offline messages
 			s.deliverOfflineMessages(username)
@@ -1132,7 +1140,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				QRToken:    msg.QRToken,
 				TurnConfig: s.generateMediaToken(username),
 			})
-			s.broadcastPresence(username, "Online")
+			s.broadcastPresence(username, "Online", nil, "")
 			s.deliverOfflineMessages(username)
 
 		case "revoke_session":
@@ -1273,7 +1281,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				QRToken:    sess,
 				TurnConfig: s.generateMediaToken(username),
 			})
-			s.broadcastPresence(username, "Online")
+			s.broadcastPresence(username, "Online", nil, "")
 			s.deliverOfflineMessages(username)
 
 		case "msg":
@@ -1364,17 +1372,54 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			s.Mu.RUnlock()
 
+		case "key_request":
+			if username == "" || msg.Recipient == "" {
+				continue
+			}
+			msg.Sender = username
+			s.Mu.RLock()
+			if recipientClient, ok := s.Clients[msg.Recipient]; ok {
+				recipientClient.Send(msg)
+			}
+			s.Mu.RUnlock()
+
 		case "presence":
 			if username == "" {
 				continue
 			}
+			msg.Sender = username
 			log.Printf("User %s is now %s", username, msg.Status)
 			s.Mu.Lock()
-			if client, ok := s.Clients[username]; ok {
-				client.Status = msg.Status
+			if cl, ok := s.Clients[username]; ok {
+				cl.Status = msg.Status
 			}
 			s.Mu.Unlock()
-			s.broadcastPresence(username, msg.Status)
+
+			// Targeted presence (e.g. public key reply to a key_request).
+			if msg.Recipient != "" {
+				s.Mu.RLock()
+				if recipientClient, ok := s.Clients[msg.Recipient]; ok {
+					out := NexusMessage{
+						Type:           "presence",
+						Sender:         username,
+						Recipient:      msg.Recipient,
+						Status:         msg.Status,
+						KeyFingerprint: msg.KeyFingerprint,
+					}
+					if len(msg.PublicKey) == 32 {
+						out.PublicKey = append([]byte(nil), msg.PublicKey...)
+					}
+					recipientClient.Send(out)
+				}
+				s.Mu.RUnlock()
+				continue
+			}
+
+			var pubCopy []byte
+			if len(msg.PublicKey) == 32 {
+				pubCopy = append([]byte(nil), msg.PublicKey...)
+			}
+			s.broadcastPresence(username, msg.Status, pubCopy, msg.KeyFingerprint)
 
 		case "search":
 			if username == "" {
@@ -1851,6 +1896,8 @@ func main() {
 
 	fs := http.FileServer(http.Dir("public"))
 	http.Handle("/public/", http.StripPrefix("/public/", fs))
+	webFS := http.FileServer(http.Dir("public/web"))
+	http.Handle("/web/", http.StripPrefix("/web/", webFS))
 	http.HandleFunc("/downloads/", server.fileDownloadHandler)
 
 	http.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
@@ -1862,7 +1909,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		const base = "https://phazechat.world"
-		paths := []string{"/", "/download", "/features", "/rates", "/about", "/support", "/privacy", "/terms", "/legal"}
+		paths := []string{"/", "/download", "/features", "/rates", "/about", "/support", "/privacy", "/terms", "/legal", "/web/"}
 		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>`)
 		fmt.Fprint(w, `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
 		for _, p := range paths {

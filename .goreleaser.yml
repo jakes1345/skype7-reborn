@@ -40,6 +40,8 @@ archives:
       - SECURITY.md
       - docs/BETA.md
       - docs/PRE_BETA_CHECKLIST.md
+      - docs/NEXUS_PROTOCOL.md
+      - docs/openapi/nexus-http.yaml
       - LICENSE
       - native_client/assets/**/*
       - nexus_server/templates/**/*

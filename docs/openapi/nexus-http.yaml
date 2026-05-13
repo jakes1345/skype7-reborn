@@ -1,0 +1,106 @@
+openapi: 3.0.3
+info:
+  title: Phaze Nexus — public HTTP surface
+  version: "0.1"
+  description: |
+    Nginx-style operator endpoints and marketing pages served by `phaze-nexus`.
+    **Most chat, calling, and account actions use the WebSocket** (`GET /ws`)
+    with JSON `NexusMessage` payloads — that protocol is documented in
+    `docs/NEXUS_PROTOCOL.md` and is **not** represented in this OpenAPI file.
+
+    This spec covers only the small JSON/bytes HTTP API intended for
+    integrations and monitoring.
+
+servers:
+  - url: https://example.com
+    description: Your deployed Nexus base URL
+
+paths:
+  /health:
+    get:
+      summary: Liveness and dependency snapshot
+      responses:
+        "200":
+          description: Nexus process is up and the database ping succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthOK"
+        "503":
+          description: Database ping failed — consider draining traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDegraded"
+  /version:
+    get:
+      summary: User-visible marketing / client version string
+      responses:
+        "200":
+          description: Plain text version line
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/version:
+    get:
+      summary: JSON variant of `/version`
+      responses:
+        "200":
+          description: Version object with optional download URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionInfo"
+
+  /api/v1/stats:
+    get:
+      summary: Public counters used by marketing pages
+      responses:
+        "200":
+          description: Aggregate stats (numbers only)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+components:
+  schemas:
+    HealthOK:
+      type: object
+      required:
+        - status
+        - database_ok
+      properties:
+        status:
+          type: string
+          example: ok
+        server:
+          type: string
+          example: phaze-nexus
+        version:
+          type: string
+        database_ok:
+          type: boolean
+        turn_configured:
+          type: boolean
+        connected_clients:
+          type: integer
+          minimum: 0
+    HealthDegraded:
+      allOf:
+        - $ref: "#/components/schemas/HealthOK"
+        - properties:
+            status:
+              type: string
+              example: degraded
+    VersionInfo:
+      type: object
+      properties:
+        version:
+          type: string
+        url:
+          type: string
+          description: Optional marketing download link

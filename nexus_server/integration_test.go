@@ -334,3 +334,77 @@ func TestHealth_JSON(t *testing.T) {
 		t.Fatalf("database_ok: %v", body["database_ok"])
 	}
 }
+
+// TestRelay_KeyRequest ensures the relay forwards pairwise key requests so
+// native clients can answer with a targeted presence carrying a public key.
+func TestRelay_KeyRequest(t *testing.T) {
+	srv, _, wsBase := newTestServer(t)
+	registerAndVerify(t, srv, "alice", "password123")
+	registerAndVerify(t, srv, "bob", "password123")
+
+	alice := dial(t, wsBase)
+	bob := dial(t, wsBase)
+	auth(t, alice, "alice", "password123")
+	auth(t, bob, "bob", "password123")
+	time.Sleep(100 * time.Millisecond)
+
+	if err := alice.WriteJSON(NexusMessage{Type: "key_request", Recipient: "bob"}); err != nil {
+		t.Fatalf("send key_request: %v", err)
+	}
+	got := readUntil(t, bob, func(m NexusMessage) bool {
+		return m.Type == "key_request" && m.Sender == "alice"
+	})
+	if got.Recipient != "bob" {
+		t.Fatalf("recipient field: got %q want bob", got.Recipient)
+	}
+}
+
+// TestRelay_PresencePublicKeyToFriends checks that presence fan-out includes
+// NaCl public key material when the authenticated client supplies it.
+func TestRelay_PresencePublicKeyToFriends(t *testing.T) {
+	srv, _, wsBase := newTestServer(t)
+	registerAndVerify(t, srv, "alice", "password123")
+	registerAndVerify(t, srv, "bob", "password123")
+
+	if _, err := srv.DB.Exec(
+		`INSERT INTO friends (user_a, user_b, status) VALUES ('alice', 'bob', 'accepted')`,
+	); err != nil {
+		t.Fatalf("insert friends: %v", err)
+	}
+
+	alice := dial(t, wsBase)
+	bob := dial(t, wsBase)
+	auth(t, alice, "alice", "password123")
+	auth(t, bob, "bob", "password123")
+	time.Sleep(100 * time.Millisecond)
+
+	pub := make([]byte, 32)
+	for i := range pub {
+		pub[i] = byte(i + 1)
+	}
+
+	if err := alice.WriteJSON(NexusMessage{
+		Type:           "presence",
+		Sender:         "alice",
+		Status:         "Online",
+		PublicKey:      pub,
+		KeyFingerprint: "deadbeefcafebabe",
+	}); err != nil {
+		t.Fatalf("presence: %v", err)
+	}
+
+	got := readUntil(t, bob, func(m NexusMessage) bool {
+		return m.Type == "presence" && m.Sender == "alice" && len(m.PublicKey) == 32
+	})
+	if got.Status != "Online" {
+		t.Fatalf("status: %q", got.Status)
+	}
+	if got.KeyFingerprint != "deadbeefcafebabe" {
+		t.Fatalf("fingerprint: %q", got.KeyFingerprint)
+	}
+	for i := range pub {
+		if got.PublicKey[i] != pub[i] {
+			t.Fatalf("public key byte %d: got %d want %d", i, got.PublicKey[i], pub[i])
+		}
+	}
+}

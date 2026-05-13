@@ -28,6 +28,7 @@ Live at **[phazechat.world](https://phazechat.world)**.
 | **TURN** | CoTURN with per-call HMAC-SHA1 short-term creds |
 | **File transfer** | WebRTC DataChannel, peer-to-peer |
 | **UI** | Fyne native desktop (OpenGL/Metal). Android APK via fyne-cross |
+| **Web pilot** | `GET /web/` — browser chat using the same `E2EE:` NaCl box wire format as native (keys in `localStorage`; no call UI yet). Wire protocol: [docs/NEXUS_PROTOCOL.md](docs/NEXUS_PROTOCOL.md). Public HTTP JSON only: [docs/openapi/nexus-http.yaml](docs/openapi/nexus-http.yaml) |
 
 ## What does not work yet
 
@@ -48,6 +49,7 @@ Live at **[phazechat.world](https://phazechat.world)**.
 cd nexus_server
 go build -o phaze-nexus
 ./phaze-nexus
+# Browser pilot (same origin): http://localhost:8080/web/
 ```
 
 **Desktop client:**

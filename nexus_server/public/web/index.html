@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phaze Web — pilot</title>
+  <style>
+    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b98a5; --accent:#00aff0; --ok:#2d6a4f; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; line-height: 1.5; }
+    h1 { font-weight: 600; font-size: 1.25rem; margin: 0 0 8px; }
+    .warn { background: #3a2a00; border: 1px solid #a07000; color: #ffe6bf; padding: 12px 14px; border-radius: 8px; margin: 16px 0; font-size: 0.9rem; }
+    .oknote { background: #0d2818; border: 1px solid var(--ok); color: #d8f3dc; padding: 12px 14px; border-radius: 8px; margin: 16px 0; font-size: 0.9rem; }
+    .panel { background: var(--panel); border-radius: 10px; padding: 16px; margin-top: 16px; max-width: 920px; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
+    input, textarea { width: 100%; max-width: 640px; padding: 10px; border-radius: 6px; border: 1px solid #334; background: #0c1018; color: var(--text); box-sizing: border-box; }
+    textarea { min-height: 72px; resize: vertical; }
+    button { margin-top: 12px; margin-right: 8px; padding: 10px 18px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #334; color: var(--text); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { background: #0c1018; border: 1px solid #334; padding: 12px; border-radius: 8px; overflow: auto; max-height: 220px; font-size: 0.78rem; color: #c8d0d8; }
+    a { color: var(--accent); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    #thread { max-height: 280px; overflow: auto; border: 1px solid #334; border-radius: 8px; padding: 8px; background: #0c1018; font-size: 0.9rem; }
+    .bubble { margin: 6px 0; padding: 8px 10px; border-radius: 8px; max-width: 85%; }
+    .bubble.in { background: #243044; margin-right: auto; }
+    .bubble.out { background: #1a4d66; margin-left: auto; text-align: right; }
+    .meta { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Phaze Web (pilot)</h1>
+  <p style="color:var(--muted);max-width:720px;margin:0;">
+    Browser build with <strong>NaCl box</strong> compatible with the native app wire format (<code>E2EE:</code> + hex).
+    Keys live in <strong>browser localStorage</strong> only — no SQLite history, no WebRTC calls here yet. Protocol:
+    <a href="https://github.com/jakes1345/skype7-reborn/blob/master/docs/NEXUS_PROTOCOL.md">NEXUS_PROTOCOL.md</a>
+    · HTTP surface sketch: <a href="https://github.com/jakes1345/skype7-reborn/blob/master/docs/openapi/nexus-http.yaml">OpenAPI (HTTP only)</a>
+  </p>
+  <div class="warn">
+    Do not reuse your production password on untrusted devices. This pilot is for operators and testers.
+  </div>
+  <div class="oknote">
+    After login, we announce your public key on <code>presence</code> so accepted friends receive it. Use <strong>Request peer key</strong> if the other person is online but you have not received their key yet.
+  </div>
+
+  <div class="panel" id="panelLogin">
+    <label for="wsurl">WebSocket URL</label>
+    <input id="wsurl" type="text" value="" autocomplete="off" spellcheck="false">
+    <label for="user">Username</label>
+    <input id="user" type="text" autocomplete="username">
+    <label for="pass">Password</label>
+    <input id="pass" type="password" autocomplete="current-password">
+    <label for="totp">TOTP (optional)</label>
+    <input id="totp" type="text" placeholder="123456" autocomplete="one-time-code">
+    <div class="row">
+      <button type="button" id="btnConnect">Connect</button>
+      <button type="button" id="btnAuth" disabled>Log in</button>
+    </div>
+  </div>
+
+  <div class="panel" id="panelChat" style="display:none;">
+    <p>Logged in as <strong id="whoami"></strong>. Fingerprint: <code id="myfp"></code></p>
+    <label for="peer">Chat with (Phaze username)</label>
+    <input id="peer" type="text" placeholder="friend_skypename">
+    <div class="row">
+      <button type="button" class="secondary" id="btnKeyReq">Request peer key</button>
+      <button type="button" class="secondary" id="btnAnnounce">Re-send my public key</button>
+    </div>
+    <label>Message</label>
+    <textarea id="draft" placeholder="Type a message…"></textarea>
+    <div class="row">
+      <button type="button" id="btnSend">Send (E2EE if keyed)</button>
+      <button type="button" class="secondary" id="btnLogout">Disconnect</button>
+    </div>
+    <label style="margin-top:16px;">Thread</label>
+    <div id="thread"></div>
+  </div>
+
+  <div class="panel">
+    <strong>Log</strong>
+    <pre id="log"></pre>
+  </div>
+
+  <script src="vendor/nacl-fast.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
