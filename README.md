@@ -64,6 +64,10 @@ cd native_client
 fyne-cross android -app-id world.phazechat.client
 ```
 
+## CI-built client bundles (all platforms)
+
+The workflow **[Build Client Packages](.github/workflows/build-clients.yml)** runs when `native_client/` or that workflow changes, on a **weekly** schedule, and via **Actions → Build Client Packages → Run workflow**. It uploads **fyne-cross** artifacts: Linux (amd64, arm64), Windows (amd64), Android (arm64 APK), macOS (amd64, arm64); **FreeBSD**, **Web/WASM**, and **iOS** steps are best-effort on hosted runners (toolchain/signing). Open the latest successful run and download the **Artifacts** zip(s).
+
 ## TURN
 
 Drop `scripts/phaze_turnserver.conf` into your coturn install, then set on the relay:
