@@ -42,7 +42,9 @@ nexus_server/skype-nexus
 nexus_server/tazher-nexus
 
 # Raw Assets (Sovereign Lockdown): unencrypted source assets stay local.
-native_client/assets/
+# Track only the Fyne-required app icon; keep other raw assets out of git.
+native_client/assets/*
+!native_client/assets/Icon.png
 assets_sovereign_backup/
 research_files/
 

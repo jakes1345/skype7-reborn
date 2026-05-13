@@ -1,10 +1,9 @@
 # Cross-compile Phaze client packages (Fyne) for common desktop and mobile targets.
 #
-# Uses fyne-io/fyne-cross (Docker on Linux; native toolchain on macOS for Darwin).
-# Artifacts are attached to each workflow run (Actions → this workflow → latest run).
+# - Ubuntu: fyne-io/fyne-cross inside Docker (Linux, Windows, Android; FreeBSD/Web best-effort).
+# - macOS: fyne CLI native packaging (no Docker). iOS is best-effort (signing / Xcode limits).
 #
-# iOS packaging often needs signing / full Xcode beyond what hosted runners provide;
-# that step is best-effort and does not fail the workflow.
+# Artifacts: Actions → this workflow → latest run → Artifacts.
 
 name: Build Client Packages
 
@@ -17,7 +16,6 @@ on:
       - '.github/workflows/build-clients.yml'
       - 'go.work'
   schedule:
-    # Weekly full matrix so artifacts stay fresh even with low commit volume
     - cron: '0 7 * * 1'
 
 permissions:
@@ -87,8 +85,8 @@ jobs:
           retention-days: 21
           if-no-files-found: warn
 
-  fyne-cross-apple:
-    name: fyne-cross (macOS desktop + iOS best-effort)
+  fyne-package-macos:
+    name: fyne package (macOS + iOS best-effort)
     runs-on: macos-latest
     timeout-minutes: 120
     steps:
@@ -100,28 +98,33 @@ jobs:
           cache: true
           cache-dependency-path: native_client/go.sum
 
-      - name: Install deps and fyne tooling
+      - name: Install build deps and fyne CLI
         run: |
           brew install libvpx pkg-config
-          go install github.com/fyne-io/fyne-cross@latest
           go install fyne.io/fyne/v2/cmd/fyne@latest
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-      - name: macOS (amd64 + arm64)
+      - name: Package macOS release bundle
         working-directory: native_client
-        run: fyne-cross darwin --arch amd64,arm64 --pull -app-id world.phazechat.app
+        run: fyne package -os darwin -release -app-id world.phazechat.app
 
-      - name: iOS (best effort — signing may be required)
-        id: ios
+      - name: Package iOS (best effort)
         continue-on-error: true
         working-directory: native_client
-        run: fyne-cross ios --pull -app-id world.phazechat.app
+        run: fyne package -os ios -release -app-id world.phazechat.app
 
-      - name: Upload fyne-cross output
+      - name: List outputs
+        working-directory: native_client
+        run: ls -la
+
+      - name: Upload macOS / iOS outputs
         uses: actions/upload-artifact@v4
         with:
           name: phaze-client-macos-ios-${{ github.sha }}
           path: |
-            native_client/fyne-cross/
+            native_client/Phaze.app
+            native_client/*.ipa
+            native_client/*.zip
+            native_client/*.tar.xz
           retention-days: 21
           if-no-files-found: warn
