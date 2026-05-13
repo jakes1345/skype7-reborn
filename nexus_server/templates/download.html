@@ -69,6 +69,21 @@
             font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
         }
 
+        .github-cta-section { padding: 40px 0 0; background: #fff; }
+        .github-cta-box {
+            max-width: 800px; margin: 0 auto; padding: 28px 32px;
+            border: 2px solid var(--skype-blue); border-radius: 16px;
+            background: linear-gradient(180deg, #f0fbff 0%, #fff 100%);
+            text-align: center;
+        }
+        .github-cta-box h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 12px; color: var(--skype-dark); }
+        .github-cta-box p { color: var(--text-light); font-size: 0.95rem; line-height: 1.55; margin: 0 0 20px; }
+        .github-cta-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: center; }
+        .github-cta-actions .platform-btn.secondary { background: #444; }
+        .github-cta-actions .platform-btn.secondary:hover { background: #222; }
+        .platform-sub { display: block; margin-top: 14px; font-size: 0.82rem; color: var(--text-light); }
+        .platform-sub a { font-weight: 600; }
+
         .req-section { padding: 40px 0 80px; }
         .req-section h3 { text-align: center; font-size: 1.2rem; margin-bottom: 30px; color: var(--text-dark); }
         .req-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 30px; max-width: 800px; margin: 0 auto; }
@@ -121,33 +136,60 @@
         </div>
     </section>
 
+    <section class="github-cta-section">
+        <div class="container">
+            <div class="github-cta-box">
+                <h2>Official builds on GitHub</h2>
+                <p>
+                    Stable bundles (Linux, Windows, macOS — amd64 and arm64) ship on
+                    <strong>GitHub Releases</strong> as <code>phazechat_&lt;version&gt;_&lt;os&gt;_&lt;arch&gt;</code> archives
+                    (Windows uses <code>.zip</code>; Linux and macOS use <code>.tar.gz</code>).
+                    Each release includes <code>checksums.txt</code> for verification.
+                    <strong>CI</strong> also publishes broader client packages (including Android APK) as workflow artifacts — those rotate on a schedule; use Releases when you want a tagged build.
+                </p>
+                <div class="github-cta-actions">
+                    <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" class="platform-btn" rel="noopener noreferrer">Latest GitHub release</a>
+                    <a href="https://github.com/jakes1345/skype7-reborn/actions/workflows/build-clients.yml" class="platform-btn secondary" rel="noopener noreferrer">CI: Build Client Packages</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <section class="platform-section">
         <div class="container">
             <h2>Choose your platform</h2>
+            <p style="text-align:center;color:var(--text-light);font-size:0.9rem;max-width:640px;margin:-24px auto 32px;">
+                Buttons below use this server as a mirror when binaries are deployed to <code>/downloads/</code>.
+                If a link 404s, use <a href="https://github.com/jakes1345/skype7-reborn/releases/latest">GitHub Releases</a> instead.
+            </p>
             <div class="platform-grid" id="platforms">
                 <div class="platform-card" id="card-windows">
                     <span class="platform-icon">🪟</span>
                     <div class="platform-name">Windows</div>
                     <div class="platform-detail">Windows 10+ · x64 · <strong>Surface Pro</strong></div>
-                    <a href="/downloads/Phaze.exe" download="Phaze.exe" class="platform-btn">Download .exe</a>
+                    <a href="/downloads/Phaze.exe" download="Phaze.exe" class="platform-btn">Download .exe (mirror)</a>
+                    <span class="platform-sub"><a href="https://github.com/jakes1345/skype7-reborn/releases/latest" rel="noopener noreferrer">Or open GitHub Releases →</a></span>
                 </div>
                 <div class="platform-card" id="card-linux">
                     <span class="platform-icon">🐧</span>
                     <div class="platform-name">Linux</div>
                     <div class="platform-detail">Ubuntu, Fedora, Arch, Debian · x64</div>
-                    <a href="/downloads/Phaze.linux" download="Phaze.linux" class="platform-btn">Download binary</a>
+                    <a href="/downloads/Phaze.linux" download="Phaze.linux" class="platform-btn">Download binary (mirror)</a>
+                    <span class="platform-sub"><a href="https://github.com/jakes1345/skype7-reborn/releases/latest" rel="noopener noreferrer">Or open GitHub Releases →</a></span>
                 </div>
-                <div class="platform-card soon" id="card-macos">
+                <div class="platform-card" id="card-macos">
                     <span class="platform-icon">🍎</span>
                     <div class="platform-name">macOS</div>
                     <div class="platform-detail">Ventura+ · Intel & Apple Silicon</div>
-                    <span class="platform-btn disabled">Build in progress</span>
+                    <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" class="platform-btn" rel="noopener noreferrer">Download on GitHub</a>
+                    <span class="platform-sub">Pick <code>darwin_arm64</code> or <code>darwin_amd64</code> in the release assets.</span>
                 </div>
                 <div class="platform-card" id="card-android">
                     <span class="platform-icon">📱</span>
                     <div class="platform-name">Android</div>
                     <div class="platform-detail">Android 10+ · ARM64</div>
-                    <a href="/downloads/Phaze.apk" download="Phaze.apk" class="platform-btn">Download .apk</a>
+                    <a href="/downloads/Phaze.apk" download="Phaze.apk" class="platform-btn">Download .apk (mirror)</a>
+                    <span class="platform-sub"><a href="https://github.com/jakes1345/skype7-reborn/actions/workflows/build-clients.yml" rel="noopener noreferrer">APK often under CI artifacts →</a></span>
                 </div>
             </div>
         </div>
@@ -204,7 +246,8 @@
         <div class="container">
             <h3>Sovereign Verification</h3>
             <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">
-                Phaze binaries are self-signed and sovereign. Verify your download bit-for-bit using the fingerprints below.
+                Phaze binaries are self-signed and sovereign. For <strong>GitHub Release</strong> downloads, verify using <code>checksums.txt</code> on that release page.
+                For <strong>this server’s</strong> mirror files below, use the SHA-256 fingerprints (these hashes are updated when the mirror is refreshed; if they do not match, prefer GitHub).
             </p>
             <div style="background:#fff7e6;border-left:4px solid #ffa500;padding:16px 20px;border-radius:4px;margin:0 0 30px;font-size:0.9rem;color:#333;">
                 <strong>Windows SmartScreen / "unknown publisher" warning?</strong><br>
