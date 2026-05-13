@@ -1851,6 +1851,14 @@ func main() {
 
 	fs := http.FileServer(http.Dir("public"))
 	http.Handle("/public/", http.StripPrefix("/public/", fs))
+	// GET /downloads (no trailing slash) is a common typo from older links; binary URLs use /downloads/<file>.
+	http.HandleFunc("/downloads", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		http.Redirect(w, r, "/download", http.StatusMovedPermanently)
+	})
 	http.HandleFunc("/downloads/", server.fileDownloadHandler)
 
 	http.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {

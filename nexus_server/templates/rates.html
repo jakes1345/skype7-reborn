@@ -24,6 +24,13 @@
         .rates-hero h1 { font-size: 2.5rem; font-weight: 300; margin-bottom: 12px; }
         .rates-hero h1 strong { font-weight: 700; }
 
+        .rates-disclaimer {
+            max-width: 820px; margin: 0 auto 32px; padding: 18px 22px;
+            background: #fff8e6; border: 1px solid #e8d48b; border-radius: 10px;
+            color: #333; font-size: 0.92rem; line-height: 1.55; text-align: left;
+        }
+        .rates-disclaimer strong { color: #6b5200; }
+
         .rates-section { padding: 60px 0; }
         .rates-section h2 { text-align: center; font-size: 1.8rem; margin-bottom: 40px; font-weight: 400; }
         
@@ -62,6 +69,11 @@
 
     <section class="rates-section">
         <div class="container">
+            <div class="rates-disclaimer">
+                <strong>Illustrative only.</strong> The per-minute prices on this page are <em>layout placeholders</em>, not a live tariff API.
+                Real PSTN pricing and availability depend entirely on your Nexus operator (carrier contracts, Twilio configuration, taxes, and whether the bridge is enabled at all).
+                Treat every number here as fictional until your operator publishes an authoritative rate card.
+            </div>
             <h2>Popular Destinations</h2>
             <div class="rates-grid">
                 <div class="rate-card">
@@ -95,11 +107,11 @@
     <section class="cta-band">
         <div class="container">
             <h2>Ready to call home?</h2>
-            <a href="/sign-in" class="btn-credit">Add Phaze Credit</a>
-            <p style="margin-top: 16px; color: var(--text-light); font-size: 0.9rem;">No subscription required. Pay only for what you use.</p>
+            <a href="/download" class="btn-credit">Download Phaze</a>
+            <p style="margin-top: 16px; color: var(--text-light); font-size: 0.9rem;">PSTN bridge and any in-app credit flow, where enabled, are handled in the client after you sign in — there is no separate web checkout or sign-in page here.</p>
         </div>
     </section>
 
-    <footer class="footer"><div class="container">© 2024–2026 Phaze · <a href="/legal">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.</div></footer>
+    <footer class="footer"><div class="container">© 2024–2026 Phaze · <a href="/terms">Terms</a> · <a href="/legal">Legal</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.</div></footer>
 </body>
 </html>

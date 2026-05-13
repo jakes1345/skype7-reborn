@@ -50,6 +50,8 @@ go build -o phaze-nexus
 ./phaze-nexus
 ```
 
+If you host the marketing **download mirror** under `nexus_server/public/downloads/`, refresh published hashes with `bash scripts/print-download-mirror-hashes.sh` after replacing binaries. End users should verify against **`checksums.txt`** on [GitHub Releases](https://github.com/jakes1345/skype7-reborn/releases/latest) (canonical), not stale HTML.
+
 **Desktop client:**
 ```bash
 cd native_client

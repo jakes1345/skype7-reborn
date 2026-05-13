@@ -76,10 +76,6 @@
 
         .verify-section { padding: 60px 0; border-top: 1px solid #eee; background: #fff; }
         .verify-section h3 { text-align: center; margin-bottom: 20px; font-weight: 300; }
-        .verify-grid { max-width: 800px; margin: 0 auto; display: grid; gap: 20px; }
-        .verify-item { background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid var(--skype-blue); }
-        .verify-item strong { display: block; margin-bottom: 5px; font-size: 0.9rem; }
-        .verify-item code { display: block; background: #eee; padding: 10px; border-radius: 4px; font-size: 0.85rem; word-break: break-all; }
         .req-card h4 { font-size: 0.95rem; margin-bottom: 12px; color: var(--text-dark); }
         .req-card ul { list-style: none; }
         .req-card li { font-size: 0.85rem; color: var(--text-light); margin-bottom: 6px; padding-left: 16px; position: relative; }
@@ -202,42 +198,32 @@
 
     <section class="verify-section">
         <div class="container">
-            <h3>Sovereign Verification</h3>
+            <h3>Verify your download</h3>
             <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">
-                Phaze binaries are self-signed and sovereign. Verify your download bit-for-bit using the fingerprints below.
+                Prefer builds from <strong>GitHub Releases</strong>: every release includes a machine-readable
+                <a href="https://github.com/jakes1345/skype7-reborn/releases/latest/download/checksums.txt" rel="noopener noreferrer"><code>checksums.txt</code></a>
+                covering published archives. Compare the SHA-256 for the file you downloaded against that list before you run anything.
             </p>
+            <div style="background:#f0f7ff;border-left:4px solid var(--skype-blue);padding:16px 20px;border-radius:4px;margin:0 0 24px;font-size:0.9rem;color:#333;">
+                <strong>How to hash locally:</strong><br>
+                Windows (PowerShell): <code>Get-FileHash .\Phaze.exe -Algorithm SHA256</code><br>
+                Linux: <code>sha256sum ./Phaze.linux</code> · macOS: <code>shasum -a 256 ./Phaze.apk</code>
+            </div>
+            <div style="background:#f5f5f5;border-left:4px solid #888;padding:16px 20px;border-radius:4px;margin:0 0 30px;font-size:0.88rem;color:#333;line-height:1.5;">
+                <strong>This server’s <code>/downloads/</code> mirror</strong> may lag Releases or carry one-off builds.
+                We no longer publish static SHA-256 blocks here (they went stale). If you deploy a mirror yourself, run
+                <code>bash scripts/print-download-mirror-hashes.sh</code> from the repo after updating binaries and publish the output on your status page or changelog.
+            </div>
             <div style="background:#fff7e6;border-left:4px solid #ffa500;padding:16px 20px;border-radius:4px;margin:0 0 30px;font-size:0.9rem;color:#333;">
-                <strong>Windows SmartScreen / "unknown publisher" warning?</strong><br>
-                Phaze is code-signed by the project, not by Microsoft's cert-cartel. Windows will say
-                "Windows protected your PC." That's expected. Click <strong>More info</strong> &rarr;
-                <strong>Run anyway</strong>. Confirm the SHA-256 below matches your download before running.
-                Checksums are how you verify; signatures are how Microsoft charges $200/year for a green badge.
-            </div>
-            <div style="background:#f0f7ff;border-left:4px solid var(--skype-blue);padding:16px 20px;border-radius:4px;margin:0 0 30px;font-size:0.9rem;color:#333;">
-                <strong>How to verify the hash:</strong><br>
-                Windows (PowerShell): <code>Get-FileHash Phaze.exe -Algorithm SHA256</code><br>
-                Linux / macOS: <code>sha256sum Phaze.linux</code> or <code>shasum -a 256 Phaze.apk</code>
-            </div>
-            <div class="verify-grid">
-                <div class="verify-item">
-                    <strong>Phaze.apk (Android)</strong>
-                    <code>SHA-256: ae3965ebb3edd052092b180516013cfc809ecc0e5955872aed0031b7fdb39fca</code>
-                </div>
-                <div class="verify-item">
-                    <strong>Phaze.exe (Windows)</strong>
-                    <code>SHA-256: 5589ed36ec4717af93cc0669975d58622dba51286ef04728c8d3ea8bb6ab2aef</code>
-                </div>
-                <div class="verify-item">
-                    <strong>Phaze.linux (Linux x86_64)</strong>
-                    <code>SHA-256: 1517851fc3e38a33c3c46c1e540fd8b1b274ab5a55fe83edec07fa21968be1b4</code>
-                </div>
+                <strong>Windows SmartScreen / “unknown publisher”?</strong><br>
+                Many builds are self-signed or unsigned; SmartScreen warnings are common. Use checksum verification and only trust sources you recognize.
             </div>
         </div>
     </section>
 
     <footer class="footer">
         <div class="container">
-            © 2024–2026 Phaze · <a href="/legal">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.
+            © 2024–2026 Phaze · <a href="/terms">Terms</a> · <a href="/legal">Legal</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.
         </div>
     </footer>
 

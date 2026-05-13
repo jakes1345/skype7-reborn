@@ -8,31 +8,42 @@
     <style>
         :root {
             --skype-blue: #00AFF0;
+            --skype-dark: #0078D4;
             --text-dark: #333;
             --text-light: #666;
             --bg-light: #f5f5f5;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, sans-serif; color: var(--text-dark); background: #fff; }
-        .container { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+        a { color: var(--skype-blue); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .container { max-width: 1140px; margin: 0 auto; padding: 0 20px; }
 
-        .navbar { background: #fff; border-bottom: 1px solid #e8e8e8; height: 60px; display: flex; align-items: center; }
+        .navbar { background: #fff; border-bottom: 1px solid #e8e8e8; position: sticky; top: 0; z-index: 1000; }
+        .navbar .container { display: flex; align-items: center; justify-content: space-between; height: 60px; }
         .nav-brand { font-size: 1.4rem; font-weight: 700; color: var(--skype-blue); display: flex; align-items: center; gap: 8px; }
+        .nav-links { display: flex; list-style: none; height: 100%; margin: 0; padding: 0; }
+        .nav-links a { display: flex; align-items: center; height: 100%; padding: 0 18px; color: var(--text-dark); font-size: 0.9rem; border-bottom: 3px solid transparent; transition: all 0.2s; text-decoration: none; }
+        .nav-links a:hover, .nav-links a.active { color: var(--skype-blue); border-bottom-color: var(--skype-blue); }
+        .nav-right { display: flex; align-items: center; gap: 16px; }
+        .nav-get-btn { background: var(--skype-blue); color: #fff !important; padding: 8px 24px; border-radius: 4px; font-weight: 600; text-decoration: none !important; }
 
-        .search-hero { background: var(--bg-light); padding: 80px 0; text-align: center; }
-        .search-hero h1 { font-size: 2.2rem; font-weight: 300; margin-bottom: 30px; }
-        .search-box { max-width: 600px; margin: 0 auto; display: flex; gap: 10px; }
-        .search-box input { flex: 1; padding: 12px 20px; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
-        .search-box button { background: var(--skype-blue); color: #fff; border: none; padding: 0 30px; border-radius: 4px; font-weight: 700; }
+        .search-hero { background: var(--bg-light); padding: 60px 0; text-align: center; }
+        .search-hero h1 { font-size: 2.2rem; font-weight: 300; margin-bottom: 16px; }
+        .search-hero .lead { color: var(--text-light); max-width: 560px; margin: 0 auto 24px; font-size: 1rem; line-height: 1.5; }
 
-        .support-grid { padding: 60px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
-        .support-card { border: 1px solid #eee; padding: 30px; border-radius: 8px; text-align: center; }
+        .support-grid { padding: 50px 0 70px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; }
+        .support-card { border: 1px solid #eee; padding: 28px; border-radius: 8px; text-align: center; }
         .support-card:hover { border-color: var(--skype-blue); }
-        .support-icon { font-size: 2.5rem; margin-bottom: 15px; display: block; }
+        .support-icon { font-size: 2.5rem; margin-bottom: 12px; display: block; }
         .support-card h3 { margin-bottom: 10px; }
-        .support-card a { font-size: 0.9rem; font-weight: 600; }
+        .support-card p { font-size: 0.9rem; color: var(--text-light); margin-bottom: 14px; line-height: 1.45; }
+        .support-card a.cta { font-size: 0.95rem; font-weight: 600; }
 
-        .footer { background: #1a1a1a; color: #999; padding: 40px 0; text-align: center; }
+        .footer { background: #1a1a1a; color: #999; padding: 40px 0; text-align: center; font-size: 0.85rem; }
+        .footer a { color: #bbb; }
+
+        @media (max-width: 768px) { .nav-links { display: none; } }
     </style>
 </head>
 <body>
@@ -40,18 +51,24 @@
         <div class="container">
             <a href="/" class="nav-brand">
                 <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="15" fill="#00AFF0"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="16" font-weight="700" font-family="sans-serif">P</text></svg>
-                Phaze Support
+                Phaze
             </a>
+            <ul class="nav-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="/features">Features</a></li>
+                <li><a href="/download">Downloads</a></li>
+                <li><a href="/rates">Rates</a></li>
+                <li><a href="/about">About</a></li>
+                <li><a href="/support" class="active">Support</a></li>
+            </ul>
+            <div class="nav-right"><a href="/download" class="nav-get-btn">Get Phaze</a></div>
         </div>
     </nav>
 
     <section class="search-hero">
         <div class="container">
-            <h1>How can we help you today?</h1>
-            <div class="search-box">
-                <input type="text" placeholder="Search for help articles...">
-                <button>Search</button>
-            </div>
+            <h1>Help &amp; support</h1>
+            <p class="lead">This hub links to real pages and the open-source repo. There is no separate “help search” yet — use the topics below or open an issue on GitHub with logs and your OS.</p>
         </div>
     </section>
 
@@ -59,46 +76,48 @@
         <div class="support-grid">
             <div class="support-card">
                 <span class="support-icon">🔑</span>
-                <h3>Account & Profile</h3>
-                <p>Manage your Phaze Name, password and security settings.</p>
-                <a href="#">Learn more →</a>
+                <h3>Account &amp; app</h3>
+                <p>Install Phaze, create an account against your chosen Nexus, and manage profile and security from the client.</p>
+                <a class="cta" href="/download">Downloads →</a>
             </div>
             <div class="support-card">
                 <span class="support-icon">📹</span>
-                <h3>Calling & Video</h3>
-                <p>Troubleshoot audio/video issues and learn about group calls.</p>
-                <a href="#">Learn more →</a>
+                <h3>Calling &amp; video</h3>
+                <p>Capabilities vary by OS (codecs, permissions). The README lists current limits for Windows, Linux, macOS, and Android.</p>
+                <a class="cta" href="https://github.com/jakes1345/skype7-reborn#readme" rel="noopener noreferrer">README on GitHub →</a>
             </div>
             <div class="support-card">
                 <span class="support-icon">💸</span>
-                <h3>Billing & Rates</h3>
-                <p>Information about Phaze Credit, subscriptions and refunds.</p>
-                <a href="#">Learn more →</a>
+                <h3>Rates &amp; PSTN</h3>
+                <p>Marketing-style rates on this site are illustrative. Real PSTN behavior depends on how your operator configures Twilio and the relay.</p>
+                <a class="cta" href="/rates">Rates page →</a>
             </div>
             <div class="support-card">
                 <span class="support-icon">🖥️</span>
-                <h3>Technical Issues</h3>
-                <p>System requirements, updates, and DirectX support.</p>
-                <a href="#">Learn more →</a>
+                <h3>Technical issues</h3>
+                <p>Desktop uses Fyne and OpenGL (not DirectX). On Linux you may need PipeWire/Pulse and matching GPU drivers.</p>
+                <a class="cta" href="https://github.com/jakes1345/skype7-reborn/issues/new/choose" rel="noopener noreferrer">Report a bug →</a>
             </div>
             <div class="support-card">
                 <span class="support-icon">🛡️</span>
-                <h3>Security & Privacy</h3>
-                <p>Learn about our E2EE mesh and how to stay safe online.</p>
-                <a href="#">Learn more →</a>
+                <h3>Security &amp; privacy</h3>
+                <p>Read the privacy policy and responsible disclosure instructions before sending sensitive security reports.</p>
+                <a class="cta" href="/privacy">Privacy →</a>
+                <br><br>
+                <a class="cta" href="https://github.com/jakes1345/skype7-reborn/blob/master/SECURITY.md" rel="noopener noreferrer">SECURITY.md →</a>
             </div>
             <div class="support-card">
                 <span class="support-icon">👥</span>
                 <h3>Community</h3>
-                <p>Join the Phaze community and talk to other sovereign users.</p>
-                <a href="#">Join us →</a>
+                <p>Source code and discussions live on GitHub. Use issue templates for beta feedback.</p>
+                <a class="cta" href="https://github.com/jakes1345/skype7-reborn" rel="noopener noreferrer">Repository →</a>
             </div>
         </div>
     </section>
 
     <footer class="footer">
         <div class="container">
-            <p>© 2024–2026 Phaze Support. Always here to help.</p>
+            <p>© 2024–2026 Phaze · <a href="/terms">Terms</a> · <a href="/legal">Legal</a> · <a href="/privacy">Privacy</a> · Not affiliated with Microsoft.</p>
         </div>
     </footer>
 </body>
