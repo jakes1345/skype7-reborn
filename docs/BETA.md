@@ -2,6 +2,8 @@
 
 This document is the **operational definition** of “beta” for Phaze (Skype 7 Reborn lineage): what must be true before you invite strangers, and what is explicitly out of scope for the first beta wave.
 
+Complete **[docs/PRE_BETA_CHECKLIST.md](PRE_BETA_CHECKLIST.md)** first (security, matrix testing, doc truth), then execute the numbered gates below.
+
 ## What “beta” means here
 
 - **Product**: Pre-1.0. Core flows are implemented; **field verification** on real networks and devices is the main remaining risk (see `README.md` status).
@@ -40,6 +42,7 @@ From `README.md` (non-exhaustive): **Opus not shipped**; **no federation**; **as
 - Group forward-secrecy / crypto hardening.  
 - Optional **web client** (greenfield on Phaze APIs; not a decompile of Skype).
 
-## Stale docs to fix when someone has a minute
+## Stale docs
 
-- `docs/index.html` still lists “video calls, mobile clients” as future work; the native README is more current.
+- [x] `docs/index.html` updated to match README (Phaze, current feature set, `phaze` binary name).
+- Full narrative site lives under `nexus_server/templates/` for production pages.

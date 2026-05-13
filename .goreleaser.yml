@@ -37,7 +37,9 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - README.md
+      - SECURITY.md
       - docs/BETA.md
+      - docs/PRE_BETA_CHECKLIST.md
       - LICENSE
       - native_client/assets/**/*
       - nexus_server/templates/**/*

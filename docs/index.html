@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Skype 7 Reborn — Bring back what we lost</title>
-<meta name="description" content="A pixel-faithful Skype 7 remake in pure Go. Free, open-source, self-hostable. Download for Windows, macOS, and Linux.">
+<title>Phaze — Classic-style chat and calls (open source)</title>
+<meta name="description" content="Phaze: sovereign Skype-style chat, voice, and video in Go. E2EE messaging, self-hostable Nexus relay. Desktop (Linux, macOS, Windows) and Android.">
 <style>
   :root {
     --aero-blue: #00AFF0;
@@ -127,7 +127,7 @@
   .disclaimer {
     font-size: 12px;
     color: var(--muted);
-    max-width: 600px;
+    max-width: 640px;
     margin: 24px auto 0;
     text-align: center;
   }
@@ -136,15 +136,15 @@
 <body>
 
 <header>
-  <h1>Skype 7 Reborn</h1>
-  <p class="tagline">The Skype you loved, rebuilt from scratch in Go. No ads. No Microsoft. No telemetry.</p>
+  <h1>Phaze</h1>
+  <p class="tagline">Classic Skype-style chat and calls — rebuilt in Go. Open source, self-hostable, no ads.</p>
 
   <div class="downloads">
     <a class="btn" href="https://github.com/jakes1345/skype7-reborn/releases/latest">Download</a>
     <a class="btn ghost" href="https://github.com/jakes1345/skype7-reborn">View on GitHub</a>
   </div>
   <div class="disclaimer">
-    Free and open source under the MIT license. Public server hosted at <code>phazechat.world</code>. Self-hosting supported.
+    MIT license. Public relay: <code>phazechat.world</code>. Pre-1.0 — see the repo README for current capabilities and limits.
   </div>
 </header>
 
@@ -152,47 +152,48 @@
 
 <div class="features">
   <div class="feature">
-    <h3>Classic Skype 7 UI</h3>
-    <p>Pixel-faithful recreation of the 2015 Aero interface with original sounds, emoticons, and Tahoma type.</p>
+    <h3>Classic-style UI</h3>
+    <p>Fyne desktop experience inspired by the Aero-era Skype look; optional user-scribed assets from an original installer (see repo legal notes).</p>
   </div>
   <div class="feature">
-    <h3>Voice calls</h3>
-    <p>WebRTC with G.711 audio. One-to-one and group voice works out of the box.</p>
+    <h3>Voice &amp; video</h3>
+    <p>WebRTC voice (PCMU). VP8 video on Linux/macOS desktop; Android and Windows builds use more constrained video paths — see README.</p>
   </div>
   <div class="feature">
     <h3>Group chats</h3>
-    <p>Named conversations with multiple members. Typing indicators, read receipts, and offline message delivery.</p>
+    <p>Named conversations; per-member ciphertext fan-out so the relay does not see message bodies.</p>
   </div>
   <div class="feature">
     <h3>File transfer</h3>
-    <p>Send any file over a secure WebRTC data channel. No size cap beyond your own bandwidth.</p>
+    <p>Peer-to-peer over a WebRTC data channel after signaling through Nexus.</p>
   </div>
   <div class="feature">
-    <h3>Presence & mood</h3>
-    <p>Online, Away, Do Not Disturb, Invisible. Set a mood message. Broadcast to every friend instantly.</p>
+    <h3>Accounts &amp; security</h3>
+    <p>Email verification, password reset, optional TOTP 2FA, QR sign-in, encrypted local SQLite on desktop.</p>
   </div>
   <div class="feature">
-    <h3>Self-hostable</h3>
-    <p>One Docker container runs the whole relay. Your data on your box. Or use the free public server.</p>
+    <h3>Self-hostable relay</h3>
+    <p>Run your own Nexus (Docker or <code>go run</code>). Clients can point at your <code>wss://</code> host.</p>
   </div>
 </div>
 
 <h2>Quick start</h2>
-<p>Download the archive for your platform, extract, and run <code>skype</code>. First launch registers a new account on the public server.</p>
+<p>Download the archive for your platform from GitHub Releases, extract, and run the <code>phaze</code> binary (Windows: <code>phaze.exe</code>). First launch walks you through account creation against the configured server (default: public relay).</p>
 
 <h2>Run your own server</h2>
 <pre><code>docker run -p 8080:8080 -v nexus_data:/data \
   ghcr.io/jakes1345/skype7-reborn-nexus:latest</code></pre>
-<p>Or clone the repo and <code>go run ./nexus_server</code>. Point clients at <code>wss://your-host/cable</code>.</p>
+<p>Or clone the repo and <code>go run ./nexus_server</code>. Point clients at your WebSocket URL (e.g. <code>wss://your-host/ws</code>).</p>
 
-<h2>Contribute</h2>
-<p>The project is 100% open source. Issues, PRs, and stars welcome at <a href="https://github.com/jakes1345/skype7-reborn">github.com/jakes1345/skype7-reborn</a>. Ideas we haven't built yet: video calls, screen sharing, mobile clients, federated servers.</p>
+<h2>Contribute &amp; beta</h2>
+<p>Issues and PRs welcome at <a href="https://github.com/jakes1345/skype7-reborn">github.com/jakes1345/skype7-reborn</a>. Use the <strong>Bug report</strong> and <strong>Beta feedback</strong> issue templates when testing prereleases.</p>
+<p><strong>Not yet the focus of v1:</strong> Opus wideband audio, multi-relay federation, native installers with auto-update, in-browser full client parity, and screen sharing — track the README roadmap.</p>
 
 </main>
 
 <footer>
-  Skype 7 Reborn is an independent, non-commercial homage.<br>
-  Skype is a trademark of Microsoft Corporation. We are not affiliated with or endorsed by Microsoft.
+  Phaze is an independent project (Skype 7 Reborn lineage).<br>
+  Skype is a trademark of Microsoft Corporation. Not affiliated with or endorsed by Microsoft.
 </footer>
 
 </body>

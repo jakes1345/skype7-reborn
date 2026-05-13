@@ -8,6 +8,10 @@ Live at **[phazechat.world](https://phazechat.world)**.
 
 **Public beta gate checklist:** [docs/BETA.md](docs/BETA.md) (CI deps, tag naming, smoke matrix, known limitations).
 
+**Pre-beta finalization:** [docs/PRE_BETA_CHECKLIST.md](docs/PRE_BETA_CHECKLIST.md) (security, matrix testing, ops, doc truth).
+
+**Security disclosures:** [SECURITY.md](SECURITY.md).
+
 ---
 
 ## What actually works today
@@ -33,7 +37,7 @@ Live at **[phazechat.world](https://phazechat.world)**.
 - **No production installers** — no MSI, no pkg, no AppImage, no auto-update channel
 - **Windows VP8** — mingw cross-build can't link libvpx without building it from source first; Windows client still uses JPEG video
 - **Mobile interop with new group E2EE** is untested on a real device (S23 ↔ desktop verification is the next gate)
-- **No rich metrics** on the relay (only a minimal `GET /health` JSON); no structured logging
+- **No rich metrics** on the relay (`GET /health` returns JSON with `database_ok`, `turn_configured`, `connected_clients` — not a full metrics stack); no structured logging
 
 ---
 
