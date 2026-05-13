@@ -12,12 +12,15 @@ Live at **[phazechat.world](https://phazechat.world)**.
 
 **Security disclosures:** [SECURITY.md](SECURITY.md).
 
+**Relay + client wire protocol (WebSocket, HTTP):** [docs/NEXUS_PROTOCOL.md](docs/NEXUS_PROTOCOL.md).
+
 ---
 
 ## What actually works today
 
 | Area | State |
 |---|---|
+| **Product shape** | **One native Go + Fyne codebase** drives **desktop** (Linux, macOS, Windows) and **Android** builds. That is the real product. |
 | **Accounts** | Email OTP registration, password reset, TOTP 2FA enrol/disable, 30-day session tokens, cross-device QR sign-in |
 | **Messaging 1:1** | Pairwise E2EE via NaCl box (Curve25519 + XSalsa20 + Poly1305) with TOFU key pinning; offline delivery |
 | **Group chats** | Per-member envelope fan-out (MLS-lite): client encrypts body once per recipient, server never sees plaintext |
@@ -28,15 +31,21 @@ Live at **[phazechat.world](https://phazechat.world)**.
 | **TURN** | CoTURN with per-call HMAC-SHA1 short-term creds |
 | **File transfer** | WebRTC DataChannel, peer-to-peer |
 | **UI** | Fyne native desktop (OpenGL/Metal). Android APK via fyne-cross |
+| **Website** | Static marketing + downloads + legal pages served by Nexus — **not** a logged-in web messenger |
+| **WebSocket API** | Nexus `/ws` JSON protocol (`NexusMessage`) is what all clients use — documented in **`docs/NEXUS_PROTOCOL.md`** (not OpenAPI/REST for chat) |
+| **Web preview** | `GET /web/` serves a **developer-only** page to test WS connectivity + `auth` JSON; **not** a replacement for the native client |
 
 ## What does not work yet
 
+- **Skype-style web client** — no in-browser chat/calls with the same E2EE and UX as native; the `/web/` page is a **protocol sandbox** only until a full WASM/JS crypto story exists
+- **Public REST / OpenAPI** for every operation — integrations must treat **`/ws` as primary**; HTTP is ancillary (health, stats, avatars, static)
 - **Opus audio** — still PCMU; desktop quality is phone-era, not Skype-era
 - **No federation** — single-relay topology; `phazechat.world` is the only signaling host in prod
 - **Asset vault key is in source** — the master key for `assets.vault` is compiled in; symbolic protection only
 - **No production installers** — no MSI, no pkg, no AppImage, no auto-update channel
 - **Windows VP8** — mingw cross-build can't link libvpx without building it from source first; Windows client still uses JPEG video
 - **Mobile interop with new group E2EE** is untested on a real device (S23 ↔ desktop verification is the next gate)
+- **iOS** — no polished App Store client in CI; packaging/signing is operator-dependent
 - **No rich metrics** on the relay (`GET /health` returns JSON with `database_ok`, `turn_configured`, `connected_clients` — not a full metrics stack); no structured logging
 
 ---
@@ -49,6 +58,8 @@ cd nexus_server
 go build -o phaze-nexus
 ./phaze-nexus
 ```
+
+With the server running locally, open **`/web/`** (e.g. `http://127.0.0.1:8080/web/`) for the **WebSocket developer preview** — read the warnings on that page; it is not the full product.
 
 **Desktop client:**
 ```bash

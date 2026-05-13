@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phaze Web — developer preview</title>
+  <style>
+    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b98a5; --accent:#00aff0; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; line-height: 1.5; }
+    h1 { font-weight: 600; font-size: 1.25rem; margin: 0 0 8px; }
+    .warn { background: #3a2a00; border: 1px solid #a07000; color: #ffe6bf; padding: 12px 14px; border-radius: 8px; margin: 16px 0; font-size: 0.9rem; }
+    .panel { background: var(--panel); border-radius: 10px; padding: 16px; margin-top: 16px; max-width: 720px; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
+    input { width: 100%; max-width: 560px; padding: 10px; border-radius: 6px; border: 1px solid #334; background: #0c1018; color: var(--text); box-sizing: border-box; }
+    button { margin-top: 12px; padding: 10px 18px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { background: #0c1018; border: 1px solid #334; padding: 12px; border-radius: 8px; overflow: auto; max-height: 280px; font-size: 0.78rem; color: #c8d0d8; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>Phaze Web (developer preview)</h1>
+  <p style="color:var(--muted);max-width:640px;margin:0;">
+    This page is a <strong>protocol sandbox</strong> only. The real Phaze client is the
+    <strong>native app</strong> (desktop / Android) with full E2EE and storage. Browser chat is not feature-complete and does not ship crypto parity — see
+    <a href="https://github.com/jakes1345/skype7-reborn/blob/master/docs/NEXUS_PROTOCOL.md">docs/NEXUS_PROTOCOL.md</a>.
+  </p>
+  <div class="warn">
+    Do not enter a real production password on a shared machine. Messages you send here are for <strong>local debugging</strong> of WebSocket connectivity.
+  </div>
+  <div class="panel">
+    <label for="wsurl">WebSocket URL</label>
+    <input id="wsurl" type="text" value="" autocomplete="off" spellcheck="false">
+    <label for="user">Username (Phaze name)</label>
+    <input id="user" type="text" autocomplete="username">
+    <label for="pass">Password</label>
+    <input id="pass" type="password" autocomplete="current-password">
+    <label for="totp">TOTP (if enabled, optional)</label>
+    <input id="totp" type="text" placeholder="123456" autocomplete="one-time-code">
+    <div>
+      <button type="button" id="btnConnect">Connect</button>
+      <button type="button" id="btnAuth" disabled>Send auth</button>
+      <button type="button" id="btnPing" disabled>Send presence ping</button>
+    </div>
+  </div>
+  <div class="panel">
+    <strong>Log</strong>
+    <pre id="log"></pre>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

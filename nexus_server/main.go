@@ -1851,6 +1851,7 @@ func main() {
 
 	fs := http.FileServer(http.Dir("public"))
 	http.Handle("/public/", http.StripPrefix("/public/", fs))
+	http.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.Dir("public/web"))))
 	http.HandleFunc("/downloads/", server.fileDownloadHandler)
 
 	http.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
@@ -1862,7 +1863,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		const base = "https://phazechat.world"
-		paths := []string{"/", "/download", "/features", "/rates", "/about", "/support", "/privacy", "/terms", "/legal"}
+		paths := []string{"/", "/download", "/features", "/rates", "/about", "/support", "/privacy", "/terms", "/legal", "/web/"}
 		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>`)
 		fmt.Fprint(w, `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
 		for _, p := range paths {
