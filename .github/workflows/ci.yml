@@ -1,4 +1,4 @@
-name: TAZHER CI
+name: Phaze CI
 
 on:
   push:
@@ -21,16 +21,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxkbcommon-dev libpulse-dev
+          sudo apt-get install -y pkg-config libgl1-mesa-dev xorg-dev libasound2-dev \
+            libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxkbcommon-dev \
+            libpulse-dev libvpx-dev
 
-      - name: Build TAZHER Engine
+      - name: Build workspace binaries
         run: |
           go work sync
-          go build -o tazher-native-linux ./native_client
-          go build -o tazher-nexus-linux ./nexus_server
+          go build -o phaze-native-linux ./native_client
+          go build -o phaze-nexus-linux ./nexus_server
 
-      - name: Test TAZHER Suite
+      - name: Test suite
         run: |
           cd native_client && go test -v ./internal/...
           cd ../nexus_server && go test -v ./...
-

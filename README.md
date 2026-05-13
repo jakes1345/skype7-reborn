@@ -6,6 +6,8 @@ Live at **[phazechat.world](https://phazechat.world)**.
 
 > **Status: pre-1.0, unverified in the field.** Builds run end-to-end on the maintainer's box, but third-party real-device testing has not happened yet. If you try it and something breaks, open an issue — that's the whole point of where we are right now.
 
+**Public beta gate checklist:** [docs/BETA.md](docs/BETA.md) (CI deps, tag naming, smoke matrix, known limitations).
+
 ---
 
 ## What actually works today
@@ -31,7 +33,7 @@ Live at **[phazechat.world](https://phazechat.world)**.
 - **No production installers** — no MSI, no pkg, no AppImage, no auto-update channel
 - **Windows VP8** — mingw cross-build can't link libvpx without building it from source first; Windows client still uses JPEG video
 - **Mobile interop with new group E2EE** is untested on a real device (S23 ↔ desktop verification is the next gate)
-- **No metrics/health endpoints** on the relay; no structured logging
+- **No rich metrics** on the relay (only a minimal `GET /health` JSON); no structured logging
 
 ---
 

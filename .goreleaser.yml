@@ -37,6 +37,7 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - README.md
+      - docs/BETA.md
       - LICENSE
       - native_client/assets/**/*
       - nexus_server/templates/**/*
@@ -67,10 +68,8 @@ release:
   draft: false
   prerelease: auto
   header: |
-    ## TAZHER — {{ .Tag }}
+    ## Phaze — {{ .Tag }}
 
-    TAZHER: Sovereign P2P Communication Engine.
-    
-    This release includes the TAZHER Client and the Nexus Relay Server.
-    - **phaze**: The native-compiled communication client.
-    - **phaze-nexus**: The edge relay server for central distribution and mesh stats.
+    Phaze (Skype-style sovereign chat, voice, and video) and the Nexus relay.
+    - **phaze**: Native Fyne desktop/mobile client (see `README.md` for platform notes).
+    - **phaze-nexus**: WebSocket relay and account services.
