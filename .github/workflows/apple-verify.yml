@@ -19,6 +19,8 @@ jobs:
       - name: Install Fyne Dependencies
         run: |
           go install fyne.io/fyne/v2/cmd/fyne@latest
+      - name: Install VP8 (libvpx) for mediadevices
+        run: brew install libvpx pkg-config
       - name: Build Native macOS App
         run: |
           cd native_client
@@ -35,7 +37,7 @@ jobs:
           go-version: '1.25.x'
       - name: Install fyne-cross
         run: |
-          go install github.com/lucor/fyne-cross@latest
+          go install github.com/fyne-io/fyne-cross@latest
       - name: Build Native iOS IPA
         run: |
           cd native_client

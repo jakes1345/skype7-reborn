@@ -17,6 +17,9 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+          cache-dependency-path: |
+            native_client/go.sum
+            nexus_server/go.sum
 
       - name: Install dependencies
         run: |
