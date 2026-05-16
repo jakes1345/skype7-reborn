@@ -196,6 +196,52 @@ type NexusMessage struct {
 	// a client is about to send a group envelope to a member it hasn't keyed.
 	PublicKey      []byte `json:"public_key,omitempty"`
 	KeyFingerprint string `json:"key_fingerprint,omitempty"`
+
+	// --- Servers + Channels (Discord-style "Spaces") ---
+	ServerID    string             `json:"server_id,omitempty"`
+	ChannelID   string             `json:"channel_id,omitempty"`
+	ServerName  string             `json:"server_name,omitempty"`
+	ChannelName string             `json:"channel_name,omitempty"`
+	Topic       string             `json:"topic,omitempty"`
+	Kind        string             `json:"kind,omitempty"`  // "text" | "voice"
+	Role        string             `json:"role,omitempty"`  // member | admin | owner
+	Visibility  string             `json:"visibility,omitempty"` // public | private
+	InviteCode  string             `json:"invite_code,omitempty"`
+	Servers     []ServerSummary    `json:"servers,omitempty"`
+	Channels    []ChannelInfo      `json:"channels,omitempty"`
+	Messages    []ChannelMsg       `json:"messages,omitempty"`
+	HistoryFrom int64              `json:"history_from,omitempty"` // id cursor (return messages with id < this)
+}
+
+// ServerSummary is the slim view a client gets for the server-list pane.
+type ServerSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Icon        string `json:"icon,omitempty"`
+	Owner       string `json:"owner"`
+	Visibility  string `json:"visibility"`
+	Role        string `json:"role"`
+	InviteCode  string `json:"invite_code,omitempty"`
+}
+
+// ChannelInfo is one channel inside a server.
+type ChannelInfo struct {
+	ID       string `json:"id"`
+	ServerID string `json:"server_id"`
+	Name     string `json:"name"`
+	Topic    string `json:"topic,omitempty"`
+	Kind     string `json:"kind"`
+	Position int    `json:"position"`
+}
+
+// ChannelMsg is one row of channel chat history (plaintext server-side).
+type ChannelMsg struct {
+	ID        int64  `json:"id"`
+	ChannelID string `json:"channel_id"`
+	Sender    string `json:"sender"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
 }
 
 type TurnConfig struct {
@@ -358,6 +404,47 @@ func (s *NexusServer) initDB() {
 			expires_at DATETIME NOT NULL,
 			approved INTEGER DEFAULT 0
 		)`,
+		// --- Servers ("Spaces") + Channels ---
+		// Persistent communities. Channel-level chat history is server-side
+		// plaintext (unlike 1:1 / convo E2EE) so search, moderation, and join
+		// history work. Private servers + E2EE-channels are a future feature.
+		`CREATE TABLE IF NOT EXISTS servers (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			icon TEXT DEFAULT '',
+			owner TEXT NOT NULL,
+			visibility TEXT NOT NULL DEFAULT 'private',
+			invite_code TEXT UNIQUE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			server_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			topic TEXT DEFAULT '',
+			kind TEXT NOT NULL DEFAULT 'text',
+			position INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS server_members (
+			server_id TEXT NOT NULL,
+			username TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'member',
+			joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (server_id, username)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			channel_id TEXT NOT NULL,
+			sender TEXT NOT NULL,
+			body TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_channels_server ON channels(server_id, position)`,
+		`CREATE INDEX IF NOT EXISTS idx_channel_messages ON channel_messages(channel_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(username)`,
+		`CREATE INDEX IF NOT EXISTS idx_servers_invite ON servers(invite_code)`,
 	}
 	for _, q := range tables {
 		if _, err := s.DB.Exec(q); err != nil {
@@ -747,6 +834,136 @@ func (s *NexusServer) userIsAdmin(username string) bool {
 		return false
 	}
 	return n == 1
+}
+
+// ---------- Servers + Channels (Discord-style "Spaces") ----------
+
+var validServerName = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} _\-\.']{1,63}$`)
+var validChannelName = regexp.MustCompile(`^[a-z0-9][a-z0-9\-_]{1,31}$`)
+
+// userIsServerMember reports whether the user is in the given server.
+func (s *NexusServer) userIsServerMember(server, user string) bool {
+	var n int
+	s.DB.QueryRow(`SELECT 1 FROM server_members WHERE server_id = ? AND username = ?`, server, user).Scan(&n)
+	return n == 1
+}
+
+// userServerRole returns the user's role in the server, or "" if not a member.
+func (s *NexusServer) userServerRole(server, user string) string {
+	var r string
+	if err := s.DB.QueryRow(`SELECT role FROM server_members WHERE server_id = ? AND username = ?`, server, user).Scan(&r); err != nil {
+		return ""
+	}
+	return r
+}
+
+// listUserServers returns the server-list pane data for a user.
+func (s *NexusServer) listUserServers(username string) ([]ServerSummary, error) {
+	rows, err := s.DB.Query(
+		`SELECT s.id, s.name, COALESCE(s.description,''), COALESCE(s.icon,''),
+		         s.owner, s.visibility, m.role, COALESCE(s.invite_code,'')
+		   FROM servers s JOIN server_members m ON s.id = m.server_id
+		  WHERE m.username = ?
+		  ORDER BY m.joined_at ASC`, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ServerSummary{}
+	for rows.Next() {
+		var ss ServerSummary
+		if err := rows.Scan(&ss.ID, &ss.Name, &ss.Description, &ss.Icon, &ss.Owner, &ss.Visibility, &ss.Role, &ss.InviteCode); err != nil {
+			continue
+		}
+		out = append(out, ss)
+	}
+	return out, nil
+}
+
+// listServerChannels returns every channel in a server.
+func (s *NexusServer) listServerChannels(serverID string) ([]ChannelInfo, error) {
+	rows, err := s.DB.Query(
+		`SELECT id, server_id, name, COALESCE(topic,''), kind, position
+		   FROM channels WHERE server_id = ?
+		  ORDER BY position ASC, name ASC`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChannelInfo{}
+	for rows.Next() {
+		var c ChannelInfo
+		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Topic, &c.Kind, &c.Position); err != nil {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// channelHistory returns the most recent `limit` messages in a channel,
+// optionally before a cursor id. Returned in chronological order (oldest first).
+func (s *NexusServer) channelHistory(channelID string, beforeID int64, limit int) ([]ChannelMsg, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var rows *sql.Rows
+	var err error
+	if beforeID > 0 {
+		rows, err = s.DB.Query(
+			`SELECT id, channel_id, sender, body, CAST(created_at AS TEXT)
+			   FROM channel_messages
+			  WHERE channel_id = ? AND id < ?
+			  ORDER BY id DESC LIMIT ?`, channelID, beforeID, limit)
+	} else {
+		rows, err = s.DB.Query(
+			`SELECT id, channel_id, sender, body, CAST(created_at AS TEXT)
+			   FROM channel_messages
+			  WHERE channel_id = ?
+			  ORDER BY id DESC LIMIT ?`, channelID, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChannelMsg
+	for rows.Next() {
+		var m ChannelMsg
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Body, &m.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	// Reverse to chronological.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+// broadcastChannelMsg fan-outs a new channel message to all currently
+// connected members of that server. Plaintext on the wire; clients filter
+// by the channel they have open.
+func (s *NexusServer) broadcastChannelMsg(serverID string, payload NexusMessage) {
+	rows, err := s.DB.Query(`SELECT username FROM server_members WHERE server_id = ?`, serverID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	var recipients []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err == nil {
+			recipients = append(recipients, u)
+		}
+	}
+	s.Mu.RLock()
+	defer s.Mu.RUnlock()
+	for _, u := range recipients {
+		if c, ok := s.Clients[u]; ok {
+			c.Send(payload)
+		}
+	}
 }
 
 var errShortPassword = &strErr{"password must be at least 8 characters"}
@@ -1826,6 +2043,279 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				recipientClient.Send(msg)
 			}
 			s.Mu.RUnlock()
+
+		// ---------- Servers + Channels ----------
+
+		case "server_create":
+			if username == "" {
+				continue
+			}
+			name := strings.TrimSpace(msg.ServerName)
+			if !validServerName.MatchString(name) {
+				client.Send(NexusMessage{Type: "server_result", Error: "Server name: 2-64 chars, letters/digits/space/-_.'"})
+				continue
+			}
+			visibility := strings.ToLower(strings.TrimSpace(msg.Visibility))
+			if visibility != "public" && visibility != "private" {
+				visibility = "private"
+			}
+			id, err := randHex(16)
+			if err != nil {
+				client.Send(NexusMessage{Type: "server_result", Error: "rand failure"})
+				continue
+			}
+			invite, err := randHex(8)
+			if err != nil {
+				client.Send(NexusMessage{Type: "server_result", Error: "rand failure"})
+				continue
+			}
+			tx, err := s.DB.Begin()
+			if err != nil {
+				client.Send(NexusMessage{Type: "server_result", Error: "db error"})
+				continue
+			}
+			func() {
+				defer tx.Rollback()
+				if _, err := tx.Exec(
+					`INSERT INTO servers (id, name, description, owner, visibility, invite_code) VALUES (?,?,?,?,?,?)`,
+					id, name, strings.TrimSpace(msg.Topic), username, visibility, invite); err != nil {
+					client.Send(NexusMessage{Type: "server_result", Error: "create server: " + err.Error()})
+					return
+				}
+				if _, err := tx.Exec(
+					`INSERT INTO server_members (server_id, username, role) VALUES (?, ?, 'owner')`,
+					id, username); err != nil {
+					client.Send(NexusMessage{Type: "server_result", Error: "add owner: " + err.Error()})
+					return
+				}
+				// Bootstrap channels every server has from day one.
+				for i, ch := range []string{"general", "random"} {
+					cid, err := randHex(12)
+					if err != nil {
+						client.Send(NexusMessage{Type: "server_result", Error: "rand failure"})
+						return
+					}
+					if _, err := tx.Exec(
+						`INSERT INTO channels (id, server_id, name, kind, position) VALUES (?,?,?, 'text', ?)`,
+						cid, id, ch, i); err != nil {
+						client.Send(NexusMessage{Type: "server_result", Error: "channel: " + err.Error()})
+						return
+					}
+				}
+				if err := tx.Commit(); err != nil {
+					client.Send(NexusMessage{Type: "server_result", Error: "commit: " + err.Error()})
+					return
+				}
+				channels, _ := s.listServerChannels(id)
+				client.Send(NexusMessage{
+					Type:       "server_result",
+					Status:     "ok",
+					ServerID:   id,
+					ServerName: name,
+					InviteCode: invite,
+					Role:       "owner",
+					Visibility: visibility,
+					Channels:   channels,
+				})
+				log.Printf("[server] %s created server %q (%s)", username, name, id)
+			}()
+
+		case "server_list":
+			if username == "" {
+				continue
+			}
+			servers, err := s.listUserServers(username)
+			if err != nil {
+				client.Send(NexusMessage{Type: "server_list_result", Error: "db: " + err.Error()})
+				continue
+			}
+			client.Send(NexusMessage{Type: "server_list_result", Status: "ok", Servers: servers})
+
+		case "server_join":
+			if username == "" {
+				continue
+			}
+			code := strings.TrimSpace(msg.InviteCode)
+			if code == "" {
+				client.Send(NexusMessage{Type: "server_join_result", Error: "invite_code required"})
+				continue
+			}
+			var serverID, serverName string
+			err := s.DB.QueryRow(
+				`SELECT id, name FROM servers WHERE invite_code = ?`, code).Scan(&serverID, &serverName)
+			if err != nil {
+				client.Send(NexusMessage{Type: "server_join_result", Error: "invite invalid"})
+				continue
+			}
+			if _, err := s.DB.Exec(
+				`INSERT OR IGNORE INTO server_members (server_id, username, role) VALUES (?, ?, 'member')`,
+				serverID, username); err != nil {
+				client.Send(NexusMessage{Type: "server_join_result", Error: "db: " + err.Error()})
+				continue
+			}
+			channels, _ := s.listServerChannels(serverID)
+			client.Send(NexusMessage{
+				Type:       "server_join_result",
+				Status:     "ok",
+				ServerID:   serverID,
+				ServerName: serverName,
+				Channels:   channels,
+			})
+			log.Printf("[server] %s joined %s (%s)", username, serverName, serverID)
+
+		case "server_leave":
+			if username == "" || msg.ServerID == "" {
+				continue
+			}
+			// Owners must transfer ownership before leaving; for v1, owner
+			// can't leave their own server.
+			role := s.userServerRole(msg.ServerID, username)
+			if role == "owner" {
+				client.Send(NexusMessage{Type: "server_leave_result", Error: "owners can't leave; delete the server or transfer ownership first"})
+				continue
+			}
+			if _, err := s.DB.Exec(
+				`DELETE FROM server_members WHERE server_id = ? AND username = ?`,
+				msg.ServerID, username); err != nil {
+				client.Send(NexusMessage{Type: "server_leave_result", Error: "db: " + err.Error()})
+				continue
+			}
+			client.Send(NexusMessage{Type: "server_leave_result", Status: "ok", ServerID: msg.ServerID})
+
+		case "server_info":
+			if username == "" || msg.ServerID == "" {
+				continue
+			}
+			if !s.userIsServerMember(msg.ServerID, username) {
+				client.Send(NexusMessage{Type: "server_info_result", Error: "not a member"})
+				continue
+			}
+			channels, _ := s.listServerChannels(msg.ServerID)
+			// Members list.
+			memberRows, _ := s.DB.Query(`SELECT username FROM server_members WHERE server_id = ?`, msg.ServerID)
+			var members []string
+			if memberRows != nil {
+				for memberRows.Next() {
+					var u string
+					if memberRows.Scan(&u) == nil {
+						members = append(members, u)
+					}
+				}
+				memberRows.Close()
+			}
+			client.Send(NexusMessage{
+				Type:     "server_info_result",
+				Status:   "ok",
+				ServerID: msg.ServerID,
+				Channels: channels,
+				Members:  members,
+			})
+
+		case "channel_create":
+			if username == "" || msg.ServerID == "" {
+				continue
+			}
+			role := s.userServerRole(msg.ServerID, username)
+			if role != "owner" && role != "admin" {
+				client.Send(NexusMessage{Type: "channel_result", Error: "admin only"})
+				continue
+			}
+			name := strings.ToLower(strings.TrimSpace(msg.ChannelName))
+			if !validChannelName.MatchString(name) {
+				client.Send(NexusMessage{Type: "channel_result", Error: "channel name: lowercase a-z 0-9 - _ , 2-32 chars"})
+				continue
+			}
+			kind := strings.ToLower(strings.TrimSpace(msg.Kind))
+			if kind != "text" && kind != "voice" {
+				kind = "text"
+			}
+			cid, err := randHex(12)
+			if err != nil {
+				client.Send(NexusMessage{Type: "channel_result", Error: "rand failure"})
+				continue
+			}
+			var maxPos int
+			s.DB.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM channels WHERE server_id = ?`, msg.ServerID).Scan(&maxPos)
+			if _, err := s.DB.Exec(
+				`INSERT INTO channels (id, server_id, name, topic, kind, position) VALUES (?,?,?,?,?,?)`,
+				cid, msg.ServerID, name, strings.TrimSpace(msg.Topic), kind, maxPos+1); err != nil {
+				client.Send(NexusMessage{Type: "channel_result", Error: "db: " + err.Error()})
+				continue
+			}
+			channels, _ := s.listServerChannels(msg.ServerID)
+			// Push update to everyone in the server.
+			s.broadcastChannelMsg(msg.ServerID, NexusMessage{
+				Type:     "server_channels_updated",
+				ServerID: msg.ServerID,
+				Channels: channels,
+			})
+			client.Send(NexusMessage{Type: "channel_result", Status: "ok", ServerID: msg.ServerID, ChannelID: cid})
+
+		case "channel_msg":
+			if username == "" || msg.ChannelID == "" {
+				continue
+			}
+			// Resolve server, check membership.
+			var serverID string
+			if err := s.DB.QueryRow(`SELECT server_id FROM channels WHERE id = ?`, msg.ChannelID).Scan(&serverID); err != nil {
+				client.Send(NexusMessage{Type: "channel_msg_result", Error: "no such channel"})
+				continue
+			}
+			if !s.userIsServerMember(serverID, username) {
+				client.Send(NexusMessage{Type: "channel_msg_result", Error: "not a member"})
+				continue
+			}
+			body := strings.TrimSpace(msg.Body)
+			if body == "" || len(body) > 8000 {
+				client.Send(NexusMessage{Type: "channel_msg_result", Error: "body 1-8000 chars"})
+				continue
+			}
+			res, err := s.DB.Exec(
+				`INSERT INTO channel_messages (channel_id, sender, body) VALUES (?,?,?)`,
+				msg.ChannelID, username, body)
+			if err != nil {
+				client.Send(NexusMessage{Type: "channel_msg_result", Error: "db: " + err.Error()})
+				continue
+			}
+			id, _ := res.LastInsertId()
+			out := NexusMessage{
+				Type:      "channel_msg_in",
+				ServerID:  serverID,
+				ChannelID: msg.ChannelID,
+				Sender:    username,
+				Body:      body,
+				Messages: []ChannelMsg{{
+					ID: id, ChannelID: msg.ChannelID, Sender: username, Body: body,
+					CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				}},
+			}
+			s.broadcastChannelMsg(serverID, out)
+
+		case "channel_history":
+			if username == "" || msg.ChannelID == "" {
+				continue
+			}
+			var serverID string
+			if err := s.DB.QueryRow(`SELECT server_id FROM channels WHERE id = ?`, msg.ChannelID).Scan(&serverID); err != nil {
+				client.Send(NexusMessage{Type: "channel_history_result", Error: "no such channel"})
+				continue
+			}
+			if !s.userIsServerMember(serverID, username) {
+				client.Send(NexusMessage{Type: "channel_history_result", Error: "not a member"})
+				continue
+			}
+			history, err := s.channelHistory(msg.ChannelID, msg.HistoryFrom, 50)
+			if err != nil {
+				client.Send(NexusMessage{Type: "channel_history_result", Error: "db: " + err.Error()})
+				continue
+			}
+			client.Send(NexusMessage{
+				Type:      "channel_history_result",
+				Status:    "ok",
+				ServerID:  serverID,
+				ChannelID: msg.ChannelID,
+				Messages:  history,
+			})
 
 		default:
 			log.Printf("Unknown message type: %s from %s", msg.Type, username)

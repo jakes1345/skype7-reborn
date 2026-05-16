@@ -575,3 +575,112 @@ func TestHealth_JSON(t *testing.T) {
 		t.Fatalf("database_ok: %v", body["database_ok"])
 	}
 }
+
+// TestSmoke_ServersAndChannels verifies the full Discord-style Spaces flow:
+// create → list (owner sees it) → invite-join → list (joiner sees it) →
+// channel message broadcast → history fetch → leave.
+func TestSmoke_ServersAndChannels(t *testing.T) {
+	srv, _, wsBase := newTestServer(t)
+
+	registerAndVerify(t, srv, "alice", "password123")
+	registerAndVerify(t, srv, "bob", "password123")
+
+	alice := dial(t, wsBase)
+	bob := dial(t, wsBase)
+	auth(t, alice, "alice", "password123")
+	auth(t, bob, "bob", "password123")
+	time.Sleep(100 * time.Millisecond)
+
+	// Alice creates a server.
+	if err := alice.WriteJSON(NexusMessage{
+		Type: "server_create", ServerName: "Phaze HQ", Topic: "the test space", Visibility: "public",
+	}); err != nil {
+		t.Fatalf("server_create: %v", err)
+	}
+	r := readUntil(t, alice, func(m NexusMessage) bool { return m.Type == "server_result" })
+	if r.Status != "ok" {
+		t.Fatalf("server_result: %+v", r)
+	}
+	if r.ServerID == "" || r.InviteCode == "" {
+		t.Fatalf("server_result missing fields: %+v", r)
+	}
+	if len(r.Channels) != 2 {
+		t.Fatalf("expected 2 default channels (general, random), got %d", len(r.Channels))
+	}
+	serverID := r.ServerID
+	invite := r.InviteCode
+	generalID := ""
+	for _, c := range r.Channels {
+		if c.Name == "general" {
+			generalID = c.ID
+		}
+	}
+	if generalID == "" {
+		t.Fatalf("no general channel")
+	}
+
+	// Alice lists her servers — should include Phaze HQ as owner.
+	alice.WriteJSON(NexusMessage{Type: "server_list"})
+	lr := readUntil(t, alice, func(m NexusMessage) bool { return m.Type == "server_list_result" })
+	if lr.Status != "ok" || len(lr.Servers) != 1 || lr.Servers[0].Role != "owner" {
+		t.Fatalf("alice server_list_result: %+v", lr)
+	}
+
+	// Bob joins via invite.
+	bob.WriteJSON(NexusMessage{Type: "server_join", InviteCode: invite})
+	jr := readUntil(t, bob, func(m NexusMessage) bool { return m.Type == "server_join_result" })
+	if jr.Status != "ok" || jr.ServerID != serverID {
+		t.Fatalf("server_join_result: %+v", jr)
+	}
+
+	// Bob lists servers — should now see it as member.
+	bob.WriteJSON(NexusMessage{Type: "server_list"})
+	bl := readUntil(t, bob, func(m NexusMessage) bool { return m.Type == "server_list_result" })
+	if len(bl.Servers) != 1 || bl.Servers[0].Role != "member" {
+		t.Fatalf("bob server_list_result: %+v", bl)
+	}
+
+	// Alice posts to #general. Both should receive channel_msg_in.
+	alice.WriteJSON(NexusMessage{
+		Type: "channel_msg", ChannelID: generalID, Body: "hello phaze",
+	})
+	aliceMsg := readUntil(t, alice, func(m NexusMessage) bool { return m.Type == "channel_msg_in" })
+	if aliceMsg.Sender != "alice" || aliceMsg.Body != "hello phaze" {
+		t.Fatalf("alice's channel_msg_in: %+v", aliceMsg)
+	}
+	bobMsg := readUntil(t, bob, func(m NexusMessage) bool { return m.Type == "channel_msg_in" })
+	if bobMsg.Sender != "alice" || bobMsg.Body != "hello phaze" {
+		t.Fatalf("bob's channel_msg_in: %+v", bobMsg)
+	}
+
+	// History returns the message.
+	bob.WriteJSON(NexusMessage{Type: "channel_history", ChannelID: generalID})
+	hr := readUntil(t, bob, func(m NexusMessage) bool { return m.Type == "channel_history_result" })
+	if hr.Status != "ok" || len(hr.Messages) != 1 || hr.Messages[0].Body != "hello phaze" {
+		t.Fatalf("channel_history_result: %+v", hr)
+	}
+
+	// Non-member can't post.
+	registerAndVerify(t, srv, "mallory", "password123")
+	mal := dial(t, wsBase)
+	auth(t, mal, "mallory", "password123")
+	mal.WriteJSON(NexusMessage{Type: "channel_msg", ChannelID: generalID, Body: "intrusion"})
+	intr := readUntil(t, mal, func(m NexusMessage) bool { return m.Type == "channel_msg_result" })
+	if intr.Error == "" {
+		t.Fatalf("non-member should be rejected: %+v", intr)
+	}
+
+	// Bob leaves.
+	bob.WriteJSON(NexusMessage{Type: "server_leave", ServerID: serverID})
+	br := readUntil(t, bob, func(m NexusMessage) bool { return m.Type == "server_leave_result" })
+	if br.Status != "ok" {
+		t.Fatalf("server_leave_result: %+v", br)
+	}
+
+	// Owner can't leave their own server.
+	alice.WriteJSON(NexusMessage{Type: "server_leave", ServerID: serverID})
+	ar := readUntil(t, alice, func(m NexusMessage) bool { return m.Type == "server_leave_result" })
+	if ar.Error == "" {
+		t.Fatalf("owner leave should be refused: %+v", ar)
+	}
+}

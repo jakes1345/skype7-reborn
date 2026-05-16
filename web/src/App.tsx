@@ -10,6 +10,7 @@ import {
 } from './e2ee'
 import { loadPins, savePins } from './keyPins'
 import { playPhazeSound } from './phazeSounds'
+import Spaces from './Spaces'
 import './App.css'
 
 const SESSION_KEY = 'phaze_session_token_v1'
@@ -78,6 +79,21 @@ export default function App() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deletePassword, setDeletePassword] = useState('')
+
+  // Top-level view mode: "dms" = the original direct-message UI;
+  // "spaces" = the Discord-style servers + channels surface.
+  const [view, setView] = useState<'dms' | 'spaces'>('dms')
+
+  // Generic message-bus so child components (Spaces) can subscribe to
+  // server-/channel-* messages without us hard-coding handlers per
+  // component. Each handler runs after the main App reducer dispatches.
+  const subscribersRef = useRef(new Set<(m: NexusMessage) => void>())
+  const subscribe = useCallback((handler: (m: NexusMessage) => void) => {
+    subscribersRef.current.add(handler)
+    return () => {
+      subscribersRef.current.delete(handler)
+    }
+  }, [])
 
   const wsRef = useRef<WebSocket | null>(null)
   const keysRef = useRef(loadOrCreateKeys())
@@ -281,6 +297,16 @@ export default function App() {
         default:
           break
       }
+      // Fan out to any subscribers (Spaces component listens for
+      // server_*/channel_* types). We always fan out, even for handled
+      // messages, so future surfaces can observe everything.
+      subscribersRef.current.forEach((sub) => {
+        try {
+          sub(msg)
+        } catch {
+          /* swallow — one subscriber crashing must not poison the bus */
+        }
+      })
     }
   }, [unwrap, appendLog, acceptPeerKey])
 
@@ -433,11 +459,37 @@ export default function App() {
           <h1>Phaze</h1>
           <p className="tagline">Messaging &amp; calls — sovereign, not corporate.</p>
         </div>
+        {me && (
+          <div className="view-switch" role="tablist" aria-label="View">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'dms'}
+              className={view === 'dms' ? 'on' : ''}
+              onClick={() => setView('dms')}
+            >
+              Chats
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'spaces'}
+              className={view === 'spaces' ? 'on' : ''}
+              onClick={() => setView('spaces')}
+            >
+              Spaces
+            </button>
+          </div>
+        )}
         <span className={`pill ${conn === 'open' ? 'ok' : ''}`}>{conn}</span>
         {me && <span className="me">@{me}</span>}
       </header>
 
       {err && <div className="banner">{err}</div>}
+
+      {me && view === 'spaces' ? (
+        <Spaces me={me} send={send} subscribe={subscribe} />
+      ) : (
 
       <main className="grid">
         <section className="panel">
@@ -670,6 +722,7 @@ export default function App() {
           </>
         )}
       </main>
+      )}
 
       <footer className="foot muted small">
         Beta — session and NaCl keys are stored in localStorage. Use HTTPS in production; set Phaze_ALLOWED_ORIGINS for your web origin.

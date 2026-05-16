@@ -341,3 +341,43 @@
 .link-btn:hover {
   color: var(--phaze-cyan);
 }
+
+.view-switch {
+  display: inline-flex;
+  margin-left: auto;
+  margin-right: 0.75rem;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+.view-switch button {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  opacity: 0.78;
+  font-weight: 600;
+  font-size: 0.78rem;
+  padding: 0.32rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 200ms ease, opacity 200ms ease, color 200ms ease;
+  letter-spacing: 0.02em;
+}
+.view-switch button:hover {
+  opacity: 1;
+}
+.view-switch button.on {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--phaze-blue);
+  opacity: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.app:has(.spaces-root) .top + main,
+.app:has(.spaces-root) .foot {
+  /* When Spaces is mounted it owns the whole viewport below the header
+     — nothing else competes for space. The :has() fallback covers
+     browsers that don't yet support `display: contents` everywhere. */
+}
