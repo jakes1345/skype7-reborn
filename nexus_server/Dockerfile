@@ -5,7 +5,7 @@
 # -----------------------------------------------------------------------
 # 1) Build the Go binaries (nexus-server + seed-admin).
 # -----------------------------------------------------------------------
-FROM golang:1.25-alpine AS go-build
+FROM golang:1.26-alpine AS go-build
 WORKDIR /src
 # Bring in just the Go module first so the dependency download caches well.
 COPY nexus_server/go.mod nexus_server/go.sum ./nexus_server/
