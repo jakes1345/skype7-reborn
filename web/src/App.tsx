@@ -61,6 +61,24 @@ export default function App() {
   const [turn, setTurn] = useState<TurnConfig | null>(null)
   const [e2eReady, setE2eReady] = useState(false)
 
+  // Auth + registration UI state. Declared up here (not lower with the
+  // other view-only setters) because the WS message handler installed in
+  // useLayoutEffect below references setMode/setRegStep, and ESLint's
+  // no-use-before-define refuses lexically-later useState declarations.
+  const [loginUser, setLoginUser] = useState('')
+  const [loginPass, setLoginPass] = useState('')
+  const [loginTotp, setLoginTotp] = useState('')
+  const [addFriend, setAddFriend] = useState('')
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [regStep, setRegStep] = useState<'form' | 'verify' | 'done'>('form')
+  const [regUser, setRegUser] = useState('')
+  const [regEmail, setRegEmail] = useState('')
+  const [regPass, setRegPass] = useState('')
+  const [regCode, setRegCode] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deletePassword, setDeletePassword] = useState('')
+
   const wsRef = useRef<WebSocket | null>(null)
   const keysRef = useRef(loadOrCreateKeys())
   const peerKeysRef = useRef<Record<string, Uint8Array>>({})
@@ -354,21 +372,6 @@ export default function App() {
     setDraft('')
   }
 
-  const [loginUser, setLoginUser] = useState('')
-  const [loginPass, setLoginPass] = useState('')
-  const [loginTotp, setLoginTotp] = useState('')
-  const [addFriend, setAddFriend] = useState('')
-
-  // Registration flow. mode toggles login/register; regStep walks form
-  // → waiting-for-code → done so the verify panel can show automatically
-  // after a successful register without the user touching anything.
-  const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [regStep, setRegStep] = useState<'form' | 'verify' | 'done'>('form')
-  const [regUser, setRegUser] = useState('')
-  const [regEmail, setRegEmail] = useState('')
-  const [regPass, setRegPass] = useState('')
-  const [regCode, setRegCode] = useState('')
-
   const doRegister = () => {
     setErr('')
     if (regUser.length < 3 || regUser.length > 32) {
@@ -404,12 +407,8 @@ export default function App() {
     })
   }
 
-  // Delete-account flow: two-step (open form -> type-to-confirm + password).
-  // The full account erasure happens server-side under 'delete_account_result'.
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [deletePassword, setDeletePassword] = useState('')
-
+  // Delete-account flow: state declared above with the rest of the auth
+  // state so the WS handler can call setDeleteOpen et al. without TDZ.
   const requestAccountDelete = () => {
     if (!me) return
     if (deleteConfirmText !== 'delete my account') {
