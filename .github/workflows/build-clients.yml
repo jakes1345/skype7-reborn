@@ -42,7 +42,7 @@ jobs:
           cache-dependency-path: native_client/go.sum
 
       - name: Cache fyne-cross Docker layers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/fyne-cross
           key: fyne-cross-cache-${{ runner.os }}-${{ hashFiles('native_client/go.sum') }}
