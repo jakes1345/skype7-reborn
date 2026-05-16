@@ -19,8 +19,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -57,34 +59,86 @@ func pstnBridgeEnabled() bool {
 	return strings.EqualFold(os.Getenv("PHAZE_ENABLE_PSTN"), "true")
 }
 
+type limiterEntry struct {
+	lim  *rate.Limiter
+	last time.Time
+}
+
 type ipLimiter struct {
 	mu       sync.Mutex
-	limiters map[string]*rate.Limiter
+	entries  map[string]*limiterEntry
 	r        rate.Limit
 	burst    int
+	idleTTL  time.Duration
+	maxSize  int
+	lastGC   time.Time
+	gcEvery  time.Duration
 }
 
 func newIPLimiter(r rate.Limit, burst int) *ipLimiter {
-	return &ipLimiter{limiters: map[string]*rate.Limiter{}, r: r, burst: burst}
+	return &ipLimiter{
+		entries: map[string]*limiterEntry{},
+		r:       r,
+		burst:   burst,
+		idleTTL: 10 * time.Minute,
+		maxSize: 50000,
+		gcEvery: 1 * time.Minute,
+	}
+}
+
+// gcLocked evicts idle limiters. Caller must hold l.mu.
+func (l *ipLimiter) gcLocked(now time.Time) {
+	if now.Sub(l.lastGC) < l.gcEvery && len(l.entries) < l.maxSize {
+		return
+	}
+	cutoff := now.Add(-l.idleTTL)
+	for ip, e := range l.entries {
+		if e.last.Before(cutoff) {
+			delete(l.entries, ip)
+		}
+	}
+	// If still over cap, drop oldest opportunistically.
+	if len(l.entries) > l.maxSize {
+		for ip := range l.entries {
+			delete(l.entries, ip)
+			if len(l.entries) <= l.maxSize*9/10 {
+				break
+			}
+		}
+	}
+	l.lastGC = now
 }
 
 func (l *ipLimiter) allow(ip string) bool {
+	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	lim, ok := l.limiters[ip]
+	l.gcLocked(now)
+	e, ok := l.entries[ip]
 	if !ok {
-		lim = rate.NewLimiter(l.r, l.burst)
-		l.limiters[ip] = lim
+		e = &limiterEntry{lim: rate.NewLimiter(l.r, l.burst)}
+		l.entries[ip] = e
 	}
-	return lim.Allow()
+	e.last = now
+	return e.lim.Allow()
 }
 
+// trustedProxyHeader is set when the server runs behind a known reverse proxy
+// (Fly.io edge, Cloudflare, nginx). Empty = ignore X-Forwarded-For entirely so
+// attackers cannot spoof a source IP to bypass per-IP rate limits.
+var trustedProxyHeader = strings.TrimSpace(os.Getenv("PHAZE_TRUST_PROXY_HEADER"))
+
 func clientIP(r *http.Request) string {
-	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
-		if i := strings.Index(xf, ","); i >= 0 {
-			return strings.TrimSpace(xf[:i])
+	if trustedProxyHeader != "" {
+		if v := strings.TrimSpace(r.Header.Get(trustedProxyHeader)); v != "" {
+			// Take leftmost entry (original client). Edge proxies append on the right.
+			if i := strings.Index(v, ","); i >= 0 {
+				v = strings.TrimSpace(v[:i])
+			}
+			if v != "" {
+				return v
+			}
 		}
-		return strings.TrimSpace(xf)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -916,8 +970,10 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Upgrade error: %v", err)
+		metrics.wsConnectionsFail.Add(1)
 		return
 	}
+	metrics.wsConnections.Add(1)
 	defer ws.Close()
 
 	// client owns the write mutex for this connection. Pre-auth writes use
@@ -968,9 +1024,13 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
+		metrics.wsMessagesIn.Add(1)
+
 		switch msg.Type {
 		case "pstn_call":
+			metrics.pstnAttempts.Add(1)
 			if !pstnBridgeEnabled() {
+				metrics.pstnRejected.Add(1)
 				client.Send(NexusMessage{
 					Type:  "pstn_status",
 					Error: "PSTN bridge is disabled on this relay. Use in-app voice/video (WebRTC) with Phaze contacts — no phone network or Twilio required.",
@@ -1059,17 +1119,21 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 
 		case "auth":
 			if msg.Body == "" {
+				metrics.authFailure.Add(1)
 				client.Send(NexusMessage{Type: "auth_result", Error: "Password required"})
 				continue
 			}
 			if !s.authenticateUser(msg.Sender, msg.Body) {
+				metrics.authFailure.Add(1)
 				client.Send(NexusMessage{Type: "auth_result", Error: "Invalid username or password"})
 				continue
 			}
 			if !s.verifyTOTP(msg.Sender, msg.TOTPCode) {
+				metrics.authFailure.Add(1)
 				client.Send(NexusMessage{Type: "auth_result", Error: "2FA code required or invalid", Status: "totp_required"})
 				continue
 			}
+			metrics.authSuccess.Add(1)
 			username = msg.Sender
 			sessTok, _ := s.issueSessionToken(username, msg.DeviceInfo)
 			s.Mu.Lock()
@@ -1517,6 +1581,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			if username == "" || msg.ConvoID == "" {
 				continue
 			}
+			metrics.convoMessages.Add(1)
 			members := s.conversationMembers(msg.ConvoID)
 			s.Mu.RLock()
 			for _, m := range members {
@@ -1593,6 +1658,7 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			if !s.areFriends(username, msg.Recipient) {
 				continue
 			}
+			metrics.keyRequests.Add(1)
 			msg.Sender = username
 			s.Mu.RLock()
 			if recipientClient, ok := s.Clients[msg.Recipient]; ok {
@@ -1638,6 +1704,89 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok","server":"phaze-nexus","version":"1.0.0"}`))
+}
+
+// ---------- Metrics (Prometheus text format) ----------
+
+var metricsStart = time.Now()
+
+type nexusMetrics struct {
+	wsConnections     atomic.Uint64
+	wsConnectionsFail atomic.Uint64
+	wsMessagesIn      atomic.Uint64
+	authSuccess       atomic.Uint64
+	authFailure       atomic.Uint64
+	keyRequests       atomic.Uint64
+	convoMessages     atomic.Uint64
+	pstnAttempts      atomic.Uint64
+	pstnRejected      atomic.Uint64
+}
+
+var metrics = &nexusMetrics{}
+
+func (s *NexusServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	if tok := strings.TrimSpace(os.Getenv("PHAZE_METRICS_TOKEN")); tok != "" {
+		got := r.Header.Get("Authorization")
+		if got != "Bearer "+tok {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
+	s.Mu.RLock()
+	activeClients := len(s.Clients)
+	s.Mu.RUnlock()
+
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	var pending int
+	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM offline_messages`).Scan(&pending)
+
+	var users int
+	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users)
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "# HELP nexus_uptime_seconds Seconds since server start\n")
+	fmt.Fprintf(w, "# TYPE nexus_uptime_seconds counter\n")
+	fmt.Fprintf(w, "nexus_uptime_seconds %.0f\n", time.Since(metricsStart).Seconds())
+	fmt.Fprintf(w, "# HELP nexus_active_clients Connected authenticated WebSocket clients\n")
+	fmt.Fprintf(w, "# TYPE nexus_active_clients gauge\n")
+	fmt.Fprintf(w, "nexus_active_clients %d\n", activeClients)
+	fmt.Fprintf(w, "# HELP nexus_registered_users Total user accounts\n")
+	fmt.Fprintf(w, "# TYPE nexus_registered_users gauge\n")
+	fmt.Fprintf(w, "nexus_registered_users %d\n", users)
+	fmt.Fprintf(w, "# HELP nexus_offline_messages_pending Queued messages awaiting recipient login\n")
+	fmt.Fprintf(w, "# TYPE nexus_offline_messages_pending gauge\n")
+	fmt.Fprintf(w, "nexus_offline_messages_pending %d\n", pending)
+	fmt.Fprintf(w, "# HELP nexus_ws_connections_total WebSocket upgrade attempts\n")
+	fmt.Fprintf(w, "# TYPE nexus_ws_connections_total counter\n")
+	fmt.Fprintf(w, "nexus_ws_connections_total %d\n", metrics.wsConnections.Load())
+	fmt.Fprintf(w, "# HELP nexus_ws_connections_failed_total WebSocket upgrades that failed\n")
+	fmt.Fprintf(w, "# TYPE nexus_ws_connections_failed_total counter\n")
+	fmt.Fprintf(w, "nexus_ws_connections_failed_total %d\n", metrics.wsConnectionsFail.Load())
+	fmt.Fprintf(w, "# HELP nexus_ws_messages_in_total Inbound WebSocket messages\n")
+	fmt.Fprintf(w, "# TYPE nexus_ws_messages_in_total counter\n")
+	fmt.Fprintf(w, "nexus_ws_messages_in_total %d\n", metrics.wsMessagesIn.Load())
+	fmt.Fprintf(w, "# HELP nexus_auth_total Auth attempts by result\n")
+	fmt.Fprintf(w, "# TYPE nexus_auth_total counter\n")
+	fmt.Fprintf(w, "nexus_auth_total{result=\"ok\"} %d\n", metrics.authSuccess.Load())
+	fmt.Fprintf(w, "nexus_auth_total{result=\"fail\"} %d\n", metrics.authFailure.Load())
+	fmt.Fprintf(w, "# HELP nexus_key_requests_total Pairwise key_request relays\n")
+	fmt.Fprintf(w, "# TYPE nexus_key_requests_total counter\n")
+	fmt.Fprintf(w, "nexus_key_requests_total %d\n", metrics.keyRequests.Load())
+	fmt.Fprintf(w, "# HELP nexus_convo_messages_total Group envelope messages relayed\n")
+	fmt.Fprintf(w, "# TYPE nexus_convo_messages_total counter\n")
+	fmt.Fprintf(w, "nexus_convo_messages_total %d\n", metrics.convoMessages.Load())
+	fmt.Fprintf(w, "# HELP nexus_pstn_total PSTN attempts and rejections\n")
+	fmt.Fprintf(w, "# TYPE nexus_pstn_total counter\n")
+	fmt.Fprintf(w, "nexus_pstn_total{result=\"attempt\"} %d\n", metrics.pstnAttempts.Load())
+	fmt.Fprintf(w, "nexus_pstn_total{result=\"rejected_disabled\"} %d\n", metrics.pstnRejected.Load())
+	fmt.Fprintf(w, "# HELP go_memstats_alloc_bytes Currently allocated heap bytes\n")
+	fmt.Fprintf(w, "# TYPE go_memstats_alloc_bytes gauge\n")
+	fmt.Fprintf(w, "go_memstats_alloc_bytes %d\n", memStats.Alloc)
+	fmt.Fprintf(w, "# HELP go_goroutines Currently running goroutines\n")
+	fmt.Fprintf(w, "# TYPE go_goroutines gauge\n")
+	fmt.Fprintf(w, "go_goroutines %d\n", runtime.NumGoroutine())
 }
 
 const rootHTML = `<!doctype html>
@@ -1950,6 +2099,7 @@ func main() {
 	http.HandleFunc("/reset", server.resetHandler)
 	http.HandleFunc("/version", server.versionHandler)
 	http.HandleFunc("/health", healthHandler)
+	http.HandleFunc("/metrics", server.metricsHandler)
 
 	http.HandleFunc("/api/v1/stats", rateLimit(server.statsHandler))
 
