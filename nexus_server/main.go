@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -366,10 +367,34 @@ func (s *NexusServer) initDB() {
 	migrations := []string{
 		`ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN ban_reason TEXT DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN banned_at DATETIME`,
+		`ALTER TABLE abuse_reports ADD COLUMN status TEXT DEFAULT 'pending'`,
+		`ALTER TABLE abuse_reports ADD COLUMN resolved_by TEXT DEFAULT ''`,
+		`ALTER TABLE abuse_reports ADD COLUMN resolved_at DATETIME`,
+		`CREATE INDEX IF NOT EXISTS idx_abuse_reports_status ON abuse_reports(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_users_banned ON users(is_banned)`,
 	}
 	for _, q := range migrations {
 		if _, err := s.DB.Exec(q); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			log.Printf("DB migration skipped (%v)", err)
+		}
+	}
+
+	// Promote any usernames listed in PHAZE_ADMIN_USERS (comma-separated) to
+	// admin on every boot. Lets you bootstrap the first admin without a DB
+	// shell, and keeps admin status in sync if you rotate the env var.
+	if raw := strings.TrimSpace(os.Getenv("PHAZE_ADMIN_USERS")); raw != "" {
+		for _, u := range strings.Split(raw, ",") {
+			u = strings.TrimSpace(u)
+			if u == "" {
+				continue
+			}
+			if _, err := s.DB.Exec(`UPDATE users SET is_admin = 1 WHERE username = ?`, u); err != nil {
+				log.Printf("[admin] promote %s: %v", u, err)
+			}
 		}
 	}
 }
@@ -700,6 +725,27 @@ func (s *NexusServer) authenticateUser(username, password string) bool {
 		return false
 	}
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+// userBanInfo returns (banned, reason). Reason is empty for non-banned users.
+func (s *NexusServer) userBanInfo(username string) (bool, string) {
+	var banned int
+	var reason string
+	err := s.DB.QueryRow(`SELECT is_banned, COALESCE(ban_reason, '') FROM users WHERE username = ?`, username).Scan(&banned, &reason)
+	if err != nil {
+		return false, ""
+	}
+	return banned == 1, reason
+}
+
+// userIsAdmin reports whether the user has the admin flag set.
+func (s *NexusServer) userIsAdmin(username string) bool {
+	var n int
+	err := s.DB.QueryRow(`SELECT is_admin FROM users WHERE username = ?`, username).Scan(&n)
+	if err != nil {
+		return false
+	}
+	return n == 1
 }
 
 var errShortPassword = &strErr{"password must be at least 8 characters"}
@@ -1167,6 +1213,15 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 				client.Send(NexusMessage{Type: "auth_result", Error: "Invalid username or password"})
 				continue
 			}
+			if banned, reason := s.userBanInfo(msg.Sender); banned {
+				metrics.authFailure.Add(1)
+				body := "Account suspended"
+				if reason != "" {
+					body += ": " + reason
+				}
+				client.Send(NexusMessage{Type: "auth_result", Error: body, Status: "banned"})
+				continue
+			}
 			if !s.verifyTOTP(msg.Sender, msg.TOTPCode) {
 				metrics.authFailure.Add(1)
 				client.Send(NexusMessage{Type: "auth_result", Error: "2FA code required or invalid", Status: "totp_required"})
@@ -1228,6 +1283,15 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			u := s.sessionUsername(msg.QRToken)
 			if u == "" {
 				client.Send(NexusMessage{Type: "auth_result", Error: "Session expired, please log in"})
+				continue
+			}
+			if banned, reason := s.userBanInfo(u); banned {
+				body := "Account suspended"
+				if reason != "" {
+					body += ": " + reason
+				}
+				s.revokeSession(msg.QRToken)
+				client.Send(NexusMessage{Type: "auth_result", Error: body, Status: "banned"})
 				continue
 			}
 			username = u
@@ -2008,6 +2072,226 @@ func (s *NexusServer) resetHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<!doctype html><html><head><meta charset=utf-8><title>Reset Phaze password</title><style>body{font-family:system-ui;max-width:520px;margin:80px auto;padding:20px}input{width:100%%;padding:10px;margin:8px 0;font-size:1rem}button{background:#00AFF0;color:#fff;border:0;padding:12px 24px;border-radius:6px;font-size:1rem;cursor:pointer}</style></head><body><h1>Reset your Phaze password</h1><form method="POST"><input type="hidden" name="token" value="%s"><label>New password (min. 8 chars)<input type="password" name="password" minlength="8" required></label><button type="submit">Set new password</button></form></body></html>`, token)
 }
 
+// ---------- Admin moderation API ----------
+
+// adminFromRequest authenticates an admin caller. Expects Authorization:
+// Bearer <session_token>. Returns "" + status code on failure (already
+// written by the helper). The session_token is the standard one issued
+// by /auth — there is no separate "admin token".
+func (s *NexusServer) adminFromRequest(w http.ResponseWriter, r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, "Bearer ") {
+		http.Error(w, "Authorization required", http.StatusUnauthorized)
+		return ""
+	}
+	tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+	u := s.sessionUsername(tok)
+	if u == "" {
+		http.Error(w, "invalid or expired session", http.StatusUnauthorized)
+		return ""
+	}
+	if !s.userIsAdmin(u) {
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return ""
+	}
+	return u
+}
+
+// AdminReport is one row of the abuse_reports table for the listing endpoint.
+type AdminReport struct {
+	ID         int64  `json:"id"`
+	Reporter   string `json:"reporter"`
+	Subject    string `json:"subject"`
+	Reason     string `json:"reason"`
+	Body       string `json:"body"`
+	Status     string `json:"status"`
+	ResolvedBy string `json:"resolved_by,omitempty"`
+	ResolvedAt string `json:"resolved_at,omitempty"`
+	CreatedAt  string `json:"created_at"`
+}
+
+func (s *NexusServer) adminReportsHandler(w http.ResponseWriter, r *http.Request) {
+	if s.adminFromRequest(w, r) == "" {
+		return
+	}
+	status := r.URL.Query().Get("status")
+	if status == "" {
+		status = "pending"
+	}
+	rows, err := s.DB.Query(
+		`SELECT id, reporter, subject, reason, COALESCE(body, ''), COALESCE(status, 'pending'),
+		         COALESCE(resolved_by, ''), COALESCE(CAST(resolved_at AS TEXT), ''), CAST(created_at AS TEXT)
+		   FROM abuse_reports
+		  WHERE COALESCE(status, 'pending') = ?
+		  ORDER BY id DESC LIMIT 500`, status)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	out := []AdminReport{}
+	for rows.Next() {
+		var rep AdminReport
+		if err := rows.Scan(&rep.ID, &rep.Reporter, &rep.Subject, &rep.Reason, &rep.Body,
+			&rep.Status, &rep.ResolvedBy, &rep.ResolvedAt, &rep.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, rep)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+func (s *NexusServer) adminResolveReportHandler(w http.ResponseWriter, r *http.Request) {
+	admin := s.adminFromRequest(w, r)
+	if admin == "" {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Path: /api/v1/admin/reports/{id}/resolve
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/reports/"), "/")
+	if len(parts) < 2 || parts[1] != "resolve" {
+		http.Error(w, "expected /api/v1/admin/reports/{id}/resolve", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "bad report id", http.StatusBadRequest)
+		return
+	}
+	res, err := s.DB.Exec(
+		`UPDATE abuse_reports SET status = 'resolved', resolved_by = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		admin, id)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		http.Error(w, "report not found", http.StatusNotFound)
+		return
+	}
+	log.Printf("[admin] %s resolved report %d", admin, id)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
+}
+
+func (s *NexusServer) adminBanHandler(w http.ResponseWriter, r *http.Request) {
+	admin := s.adminFromRequest(w, r)
+	if admin == "" {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Path: /api/v1/admin/users/{username}/(ban|unban)
+	tail := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/users/")
+	parts := strings.Split(tail, "/")
+	if len(parts) < 2 {
+		http.Error(w, "expected /api/v1/admin/users/{username}/(ban|unban)", http.StatusBadRequest)
+		return
+	}
+	target := parts[0]
+	action := parts[1]
+	if target == "" || !validUsername(target) {
+		http.Error(w, "bad username", http.StatusBadRequest)
+		return
+	}
+	if target == admin {
+		http.Error(w, "cannot ban yourself", http.StatusBadRequest)
+		return
+	}
+
+	var reason string
+	if r.ContentLength > 0 && r.ContentLength < 4096 {
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
+		reason = strings.TrimSpace(body.Reason)
+	}
+
+	switch action {
+	case "ban":
+		res, err := s.DB.Exec(
+			`UPDATE users SET is_banned = 1, ban_reason = ?, banned_at = CURRENT_TIMESTAMP WHERE username = ?`,
+			reason, target)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		// Revoke all live sessions so the user is logged out everywhere.
+		s.DB.Exec(`UPDATE session_tokens SET revoked = 1 WHERE username = ?`, target)
+		// Kick connected session, if any.
+		s.Mu.Lock()
+		if c, ok := s.Clients[target]; ok {
+			body := "Account suspended"
+			if reason != "" {
+				body += ": " + reason
+			}
+			c.Send(NexusMessage{Type: "kicked", Body: body})
+			c.Conn.Close()
+			delete(s.Clients, target)
+		}
+		s.Mu.Unlock()
+		log.Printf("[admin] %s banned %s (reason=%q)", admin, target, reason)
+	case "unban":
+		res, err := s.DB.Exec(
+			`UPDATE users SET is_banned = 0, ban_reason = '', banned_at = NULL WHERE username = ?`, target)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("[admin] %s unbanned %s", admin, target)
+	default:
+		http.Error(w, "expected /ban or /unban", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": target, "action": action})
+}
+
+func (s *NexusServer) adminBannedUsersHandler(w http.ResponseWriter, r *http.Request) {
+	if s.adminFromRequest(w, r) == "" {
+		return
+	}
+	rows, err := s.DB.Query(
+		`SELECT username, COALESCE(ban_reason, ''), COALESCE(CAST(banned_at AS TEXT), '')
+		   FROM users WHERE is_banned = 1 ORDER BY banned_at DESC LIMIT 500`)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type bannedUser struct {
+		Username string `json:"username"`
+		Reason   string `json:"reason"`
+		BannedAt string `json:"banned_at"`
+	}
+	out := []bannedUser{}
+	for rows.Next() {
+		var u bannedUser
+		if err := rows.Scan(&u.Username, &u.Reason, &u.BannedAt); err != nil {
+			continue
+		}
+		out = append(out, u)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
 // ---------- Update manifest (GitHub Releases) ----------
 
 // PlatformAsset is one downloadable artifact for the auto-update flow.
@@ -2380,6 +2664,10 @@ func main() {
 	http.HandleFunc("/version", server.versionHandler)
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/metrics", server.metricsHandler)
+	http.HandleFunc("/api/v1/admin/reports", server.adminReportsHandler)
+	http.HandleFunc("/api/v1/admin/reports/", server.adminResolveReportHandler) // /{id}/resolve
+	http.HandleFunc("/api/v1/admin/users/", server.adminBanHandler)             // /{username}/(ban|unban)
+	http.HandleFunc("/api/v1/admin/banned", server.adminBannedUsersHandler)
 
 	http.HandleFunc("/api/v1/stats", rateLimit(server.statsHandler))
 

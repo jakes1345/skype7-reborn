@@ -35,6 +35,10 @@ func newTestServer(t *testing.T) (*NexusServer, *httptest.Server, string) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", srv.handleConnections)
+	mux.HandleFunc("/api/v1/admin/reports", srv.adminReportsHandler)
+	mux.HandleFunc("/api/v1/admin/reports/", srv.adminResolveReportHandler)
+	mux.HandleFunc("/api/v1/admin/users/", srv.adminBanHandler)
+	mux.HandleFunc("/api/v1/admin/banned", srv.adminBannedUsersHandler)
 	hs := httptest.NewServer(mux)
 	t.Cleanup(hs.Close)
 
@@ -464,4 +468,89 @@ func TestSmoke_DeleteAccount(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("reports ABOUT alice should be retained: count=%d", n)
 	}
+}
+
+// TestSmoke_AdminBanFlow verifies the ban path: admin promotes via env,
+// REST endpoint flips is_banned, kicks the online client, and subsequent
+// auth attempts are rejected with "Account suspended".
+func TestSmoke_AdminBanFlow(t *testing.T) {
+	srv, hs, wsBase := newTestServer(t)
+
+	registerAndVerify(t, srv, "admin", "password123")
+	registerAndVerify(t, srv, "spammer", "password123")
+	if _, err := srv.DB.Exec(`UPDATE users SET is_admin = 1 WHERE username = 'admin'`); err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+
+	// 1) Spammer logs in successfully (control: unbanned baseline).
+	c := dial(t, wsBase)
+	auth(t, c, "spammer", "password123")
+	c.Close()
+
+	// 2) Admin logs in to mint a session token, which doubles as the bearer
+	//    for the admin REST endpoints.
+	adminC := dial(t, wsBase)
+	if err := adminC.WriteJSON(NexusMessage{Type: "auth", Sender: "admin", Body: "password123"}); err != nil {
+		t.Fatalf("admin auth send: %v", err)
+	}
+	res := readUntil(t, adminC, func(m NexusMessage) bool { return m.Type == "auth_result" })
+	if res.Status != "ok" || res.QRToken == "" {
+		t.Fatalf("admin auth: %+v", res)
+	}
+	adminToken := res.QRToken
+	adminC.Close()
+
+	// 3) POST /api/v1/admin/users/spammer/ban
+	req, _ := http.NewRequest("POST", hs.URL+"/api/v1/admin/users/spammer/ban",
+		strings.NewReader(`{"reason":"abuse: chain-spamming"}`))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("ban POST: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ban POST status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 4) Spammer tries to re-auth — must be refused.
+	c2 := dial(t, wsBase)
+	if err := c2.WriteJSON(NexusMessage{Type: "auth", Sender: "spammer", Body: "password123"}); err != nil {
+		t.Fatalf("spammer reauth: %v", err)
+	}
+	rej := readUntil(t, c2, func(m NexusMessage) bool { return m.Type == "auth_result" })
+	if rej.Status != "banned" {
+		t.Fatalf("ban not enforced: %+v", rej)
+	}
+	if !strings.Contains(rej.Error, "abuse: chain-spamming") {
+		t.Fatalf("ban reason missing: %q", rej.Error)
+	}
+	c2.Close()
+
+	// 5) Unauthorised caller — no admin token — gets 401.
+	req, _ = http.NewRequest("GET", hs.URL+"/api/v1/admin/reports", nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no-auth admin call status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 6) Non-admin authenticated caller — 403.
+	regC := dial(t, wsBase)
+	registerAndVerify(t, srv, "regular", "password123")
+	if err := regC.WriteJSON(NexusMessage{Type: "auth", Sender: "regular", Body: "password123"}); err != nil {
+		t.Fatalf("regular auth: %v", err)
+	}
+	regRes := readUntil(t, regC, func(m NexusMessage) bool { return m.Type == "auth_result" })
+	regToken := regRes.QRToken
+	regC.Close()
+
+	req, _ = http.NewRequest("GET", hs.URL+"/api/v1/admin/reports", nil)
+	req.Header.Set("Authorization", "Bearer "+regToken)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin call status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
 }
