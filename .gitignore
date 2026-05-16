@@ -1,6 +1,9 @@
 # Phaze Sovereign Git Ignore
 # Protects raw assets and build artifacts from the tree.
 
+# Local Make overrides (paths, secrets for dev machines)
+local.mk
+
 # Build artifacts
 bin/
 fyne-cross/
@@ -33,6 +36,7 @@ native_client/tazher-native
 native_client/private-skype
 native_client/shadow_test
 native_client/skype_test
+native_client/velocity_test
 native_client/skype-classic
 native_client/SkypeSetup_*.exe
 native_client/scratch/SkypeSetup_*.exe
@@ -60,8 +64,5 @@ native_client/vault_lock.go
 # System
 .DS_Store
 
-# Reverse-engineered Skype 7.41 binary dumps and ripped resources
-# Kept locally for forensic reference, never distributed.
-dissection/
-native_client/skype7_dissection/
-nexus_server/public/downloads/assets/original_resources/
+# Legacy reverse-engineering trees (Skype dumps, Ghidra exports) are intentionally
+# not part of this repo — add them only in a private fork if you still need them.

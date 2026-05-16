@@ -1,4 +1,4 @@
-name: TAZHER CI
+name: Phaze CI
 
 on:
   push:
@@ -18,19 +18,35 @@ jobs:
           go-version: '1.25.x'
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxkbcommon-dev libpulse-dev
 
-      - name: Build TAZHER Engine
+      - name: Build Phaze (native + nexus)
         run: |
           go work sync
-          go build -o tazher-native-linux ./native_client
-          go build -o tazher-nexus-linux ./nexus_server
+          go build -o phaze-native-linux ./native_client
+          go build -o phaze-nexus-linux ./nexus_server
 
-      - name: Test TAZHER Suite
+      - name: Test Go suites
         run: |
           cd native_client && go test -v ./internal/...
-          cd ../nexus_server && go test -v ./...
+          cd ../nexus_server && go test -race -count=1 -v ./...
+
+      - name: Go vet (native + nexus)
+        run: |
+          cd native_client && go vet ./...
+          cd ../nexus_server && go vet ./...
+
+      - name: Install and build web client
+        run: |
+          cd web && npm ci && npm run build && npm run test && npm run lint
 

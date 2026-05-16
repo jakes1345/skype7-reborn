@@ -21,7 +21,7 @@ Live at **[phazechat.world](https://phazechat.world)**.
 | **Relay discovery** | Three layers: Phaze Nexus websocket relay → libp2p Kademlia DHT → mDNS LAN mesh |
 | **TURN** | CoTURN with per-call HMAC-SHA1 short-term creds |
 | **File transfer** | WebRTC DataChannel, peer-to-peer |
-| **UI** | Fyne native desktop (OpenGL/Metal). Android APK via fyne-cross |
+| **UI** | Fyne native desktop (OpenGL/Metal). Android APK / iOS via **`fyne package`** (see `docs/MOBILE_BUILDS.md`). **Web beta** (`web/`) — auth, friends, 1:1 chat, NaCl E2EE + key handoff via Nexus |
 
 ## What does not work yet
 
@@ -31,31 +31,54 @@ Live at **[phazechat.world](https://phazechat.world)**.
 - **No production installers** — no MSI, no pkg, no AppImage, no auto-update channel
 - **Windows VP8** — mingw cross-build can't link libvpx without building it from source first; Windows client still uses JPEG video
 - **Mobile interop with new group E2EE** is untested on a real device (S23 ↔ desktop verification is the next gate)
-- **No metrics/health endpoints** on the relay; no structured logging
+- **Limited observability** — `/health` and `/api/v1/stats` exist on the relay, but there is no structured logging, dashboards, or alerting pipeline yet
 
 ---
 
 ## Build
 
+**Full local build (tests + relay + desktop + web + Android APK):**
+```bash
+make build-all    # tests, then bin/phaze-nexus, bin/Phaze, bin/Phaze-android-arm64.apk, and web/dist/
+make test         # Go tests in nexus_server + native_client only
+```
+
+Pushes to **GitHub** also run **Actions** (Linux + macOS) — see **[GitHub (source of truth)](#github-source-of-truth)** below.
+
 **Relay (Phaze Nexus):**
 ```bash
 cd nexus_server
-go build -o phaze-nexus
+go build -o phaze-nexus .
 ./phaze-nexus
 ```
+
+From the repo root you can also run `make nexus` and then `./bin/phaze-nexus`. The server calls `resolveWorkingDir()` at startup so `templates/` and `public/` are found when the binary sits in `bin/` next to `nexus_server/`. For unusual layouts, set **`PHAZE_ASSET_ROOT`** to the directory that contains those folders.
 
 **Desktop client:**
 ```bash
 cd native_client
 # Linux/macOS: libvpx-dev required for VP8 video
-go build -o phaze
+go build -o phaze .
 ./phaze
 ```
 
-**Android APK:**
+**Web client (beta):**
 ```bash
-cd native_client
-fyne-cross android -app-id world.phazechat.client
+cd nexus_server && go build -o phaze-nexus . && ./phaze-nexus
+# other terminal:
+cd web && cp .env.example .env.local && npm install && npm run dev
+```
+Set `VITE_NEXUS_WS` in `.env.local` to your relay (for example `ws://127.0.0.1:8080/ws`). In production, add your HTTPS origin to `Phaze_ALLOWED_ORIGINS` on Nexus so browser WebSockets pass the origin check.
+
+Wire protocol: `docs/WS_PROTOCOL.md`. Roadmap: `PHAZE_ENGINEERING_GUIDELINE.md`. **Web + desktop + Android together:** `docs/CLIENT_INTEROP.md` (same Nexus; chat/E2EE aligned; calls need web WebRTC + codec work).
+
+**Self-host on phazechat.world (no Fly.io):** see **`docs/DEPLOY_SELF_HOSTED.md`** and `nexus_server/docker-compose.yml` — DNS to your VPS, TLS on Caddy/nginx, Nexus behind reverse proxy.
+
+**Mobile (Android / iOS / macOS):** **`docs/MOBILE_BUILDS.md`** — the **IDE** (e.g. Linux `.tar.gz` under `…/android-studio`) is **not** `ANDROID_HOME`; the **SDK** usually lives under **`$HOME/Android/Sdk`**. Copy **`local.mk.example`** → **`local.mk`** to pin paths; install **NDK** in SDK Manager, then `make android` → `bin/Phaze-android-arm64.apk`. iOS: **`make ios`** / **`make iossim`** on **macOS + Xcode** only.
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"
+make android
 ```
 
 ## TURN
@@ -70,6 +93,13 @@ PHAZE_TURN_SHORT_TERM=true
 
 Secret must match the CoTURN `static-auth-secret`.
 
+## PSTN (optional phone bridge)
+
+By default **PSTN is off** on Nexus — voice/video is **WebRTC between Phaze users** only (no Twilio call charges). See **`docs/WEBRTC_AND_PSTN.md`**.
+
+- **`PHAZE_ENABLE_PSTN=true`** on Nexus: allow `pstn_call` through to Twilio when `TWILIO_*` and `Phaze_APP_URL` are set.
+- **`PHAZE_ENABLE_PSTN=true`** on the desktop client: show the numeric **Dial** tab again.
+
 ---
 
 ## Threat model (short version)
@@ -80,6 +110,16 @@ Secret must match the CoTURN `static-auth-secret`.
 - No forward secrecy on group messages yet — compromising a long-term key lets an attacker decrypt historical envelopes.
 
 If any of those assumptions are dealbreakers, Phaze is not the right tool for your threat model yet.
+
+---
+
+## GitHub (source of truth)
+
+- **Repository:** [github.com/jakes1345/skype7-reborn](https://github.com/jakes1345/skype7-reborn) — issues, PRs, and history all live here.
+- **CI:** [Actions](https://github.com/jakes1345/skype7-reborn/actions) on **`main` / `master`**  
+  - **Phaze CI** (Ubuntu): `go build` native + Nexus, Go tests, `npm ci` + web production build.  
+  - **Sovereign Apple Verification** (macOS): desktop binary + **iOS Simulator** Fyne package — this is the “we don’t have a physical Mac” path for **automated** Apple-side compile checks.  
+- **Local vs CI:** `make build-all` on your machine also produces the **Android APK**; CI today does **not** run the full Android NDK pipeline (that stays local unless we add a dedicated job).
 
 ---
 

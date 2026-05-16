@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Skype 7 Reborn — Bring back what we lost</title>
-<meta name="description" content="A pixel-faithful Skype 7 remake in pure Go. Free, open-source, self-hostable. Download for Windows, macOS, and Linux.">
+<title>Phaze — sovereign chat &amp; calls</title>
+<meta name="description" content="Phaze: self-hostable chat, voice, and video with a Go relay and native + web clients.">
 <style>
   :root {
     --aero-blue: #00AFF0;
@@ -19,34 +19,21 @@
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: "Segoe UI", Tahoma, "Lucida Grande", sans-serif;
+    font-family: "Segoe UI", Tahoma, sans-serif;
     color: var(--text);
     background: linear-gradient(180deg, var(--aero-light) 0%, var(--bg) 240px);
     line-height: 1.55;
   }
-  header {
-    text-align: center;
-    padding: 80px 20px 40px;
-  }
+  header { text-align: center; padding: 80px 20px 40px; }
   header h1 {
-    font-size: 64px;
+    font-size: 56px;
     font-weight: 300;
     margin: 0 0 12px;
     color: var(--aero-dark);
     letter-spacing: -1px;
   }
-  header .tagline {
-    font-size: 22px;
-    color: var(--muted);
-    margin-bottom: 40px;
-  }
-  .downloads {
-    display: flex;
-    justify-content: center;
-    gap: 14px;
-    flex-wrap: wrap;
-    margin-top: 20px;
-  }
+  header .tagline { font-size: 20px; color: var(--muted); margin-bottom: 32px; }
+  .downloads { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; }
   .btn {
     display: inline-flex;
     align-items: center;
@@ -58,29 +45,13 @@
     font-weight: 600;
     border-radius: 4px;
     border: 1px solid var(--aero-dark);
-    box-shadow: 0 2px 6px rgba(0,95,143,0.25);
-    transition: transform .08s ease, box-shadow .08s ease;
   }
-  .btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(0,95,143,0.35);
-  }
-  .btn.ghost {
-    background: var(--panel);
-    color: var(--aero-dark);
-    border-color: var(--border);
-    box-shadow: none;
-  }
-  main {
-    max-width: 960px;
-    margin: 60px auto;
-    padding: 0 24px;
-  }
+  main { max-width: 960px; margin: 48px auto; padding: 0 24px; }
   .features {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 20px;
-    margin: 40px 0;
+    margin: 36px 0;
   }
   .feature {
     background: var(--panel);
@@ -88,21 +59,13 @@
     border-radius: 6px;
     padding: 22px;
   }
-  .feature h3 {
-    margin: 0 0 8px;
-    color: var(--aero-dark);
-    font-size: 17px;
-  }
-  .feature p {
-    margin: 0;
-    font-size: 14px;
-    color: var(--muted);
-  }
+  .feature h3 { margin: 0 0 8px; color: var(--aero-dark); font-size: 17px; }
+  .feature p { margin: 0; font-size: 14px; color: var(--muted); }
   h2 {
     color: var(--aero-dark);
     font-weight: 300;
-    font-size: 32px;
-    margin-top: 60px;
+    font-size: 28px;
+    margin-top: 48px;
     border-bottom: 1px solid var(--border);
     padding-bottom: 8px;
   }
@@ -114,86 +77,56 @@
     overflow-x: auto;
     font-size: 13px;
   }
-  code { font-family: "Consolas", "Monaco", monospace; }
-  a { color: var(--aero-dark); }
   footer {
     text-align: center;
     padding: 40px 20px;
     color: var(--muted);
     font-size: 13px;
     border-top: 1px solid var(--border);
-    margin-top: 60px;
+    margin-top: 48px;
   }
-  .disclaimer {
-    font-size: 12px;
-    color: var(--muted);
-    max-width: 600px;
-    margin: 24px auto 0;
-    text-align: center;
-  }
+  .disclaimer { font-size: 12px; color: var(--muted); max-width: 640px; margin: 20px auto 0; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Skype 7 Reborn</h1>
-  <p class="tagline">The Skype you loved, rebuilt from scratch in Go. No ads. No Microsoft. No telemetry.</p>
-
+  <h1>Phaze</h1>
+  <p class="tagline">Chat, voice, and video you control — Go relay, encrypted messages, WebRTC media.</p>
   <div class="downloads">
-    <a class="btn" href="https://github.com/jakes1345/skype7-reborn/releases/latest">Download</a>
-    <a class="btn ghost" href="https://github.com/jakes1345/skype7-reborn">View on GitHub</a>
+    <a class="btn" href="https://phazechat.world/download">Download</a>
+    <a class="btn" href="https://phazechat.world/">phazechat.world</a>
   </div>
-  <div class="disclaimer">
-    Free and open source under the MIT license. Public server hosted at <code>phazechat.world</code>. Self-hosting supported.
-  </div>
+  <p class="disclaimer">Self-host the open-source <strong>nexus_server</strong> and point <strong>native_client</strong> / <strong>web</strong> at your relay. See the repository <code>README.md</code> for build steps.</p>
 </header>
 
 <main>
-
 <div class="features">
   <div class="feature">
-    <h3>Classic Skype 7 UI</h3>
-    <p>Pixel-faithful recreation of the 2015 Aero interface with original sounds, emoticons, and Tahoma type.</p>
+    <h3>Modern clients</h3>
+    <p>Fyne desktop &amp; Android from one Go codebase; web client for browsers — same Nexus protocol.</p>
   </div>
   <div class="feature">
-    <h3>Voice calls</h3>
-    <p>WebRTC with G.711 audio. One-to-one and group voice works out of the box.</p>
+    <h3>Encryption</h3>
+    <p>Pairwise NaCl box for direct messages; per-member envelopes for groups so the relay never sees plaintext bodies.</p>
   </div>
   <div class="feature">
-    <h3>Group chats</h3>
-    <p>Named conversations with multiple members. Typing indicators, read receipts, and offline message delivery.</p>
-  </div>
-  <div class="feature">
-    <h3>File transfer</h3>
-    <p>Send any file over a secure WebRTC data channel. No size cap beyond your own bandwidth.</p>
-  </div>
-  <div class="feature">
-    <h3>Presence & mood</h3>
-    <p>Online, Away, Do Not Disturb, Invisible. Set a mood message. Broadcast to every friend instantly.</p>
+    <h3>WebRTC calls</h3>
+    <p>Voice and video over Pion (native) and browser APIs (web, in progress) with TURN from your relay.</p>
   </div>
   <div class="feature">
     <h3>Self-hostable</h3>
-    <p>One Docker container runs the whole relay. Your data on your box. Or use the free public server.</p>
+    <p>SQLite-backed relay by default. Your users, your data policy.</p>
   </div>
 </div>
 
-<h2>Quick start</h2>
-<p>Download the archive for your platform, extract, and run <code>skype</code>. First launch registers a new account on the public server.</p>
-
-<h2>Run your own server</h2>
-<pre><code>docker run -p 8080:8080 -v nexus_data:/data \
-  ghcr.io/jakes1345/skype7-reborn-nexus:latest</code></pre>
-<p>Or clone the repo and <code>go run ./nexus_server</code>. Point clients at <code>wss://your-host/cable</code>.</p>
-
-<h2>Contribute</h2>
-<p>The project is 100% open source. Issues, PRs, and stars welcome at <a href="https://github.com/jakes1345/skype7-reborn">github.com/jakes1345/skype7-reborn</a>. Ideas we haven't built yet: video calls, screen sharing, mobile clients, federated servers.</p>
-
+<h2>Run your own relay</h2>
+<pre><code>cd nexus_server &amp;&amp; go build -o phaze-nexus &amp;&amp; ./phaze-nexus</code></pre>
+<p>Set <code>PORT</code>, <code>DB_PATH</code>, and TURN env vars as documented in the main README.</p>
 </main>
 
 <footer>
-  Skype 7 Reborn is an independent, non-commercial homage.<br>
-  Skype is a trademark of Microsoft Corporation. We are not affiliated with or endorsed by Microsoft.
+  Phaze is an independent project. Skype is a trademark of Microsoft Corporation; Phaze is not affiliated with Microsoft.
 </footer>
-
 </body>
 </html>

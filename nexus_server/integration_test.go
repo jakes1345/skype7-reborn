@@ -56,10 +56,13 @@ func dial(t *testing.T, wsBase string) *websocket.Conn {
 }
 
 // readUntil reads messages until one matches the predicate or the deadline trips.
+// Each successful read resets the read deadline so bursty server messages cannot
+// consume the entire window before the awaited frame arrives.
 func readUntil(t *testing.T, c *websocket.Conn, want func(NexusMessage) bool) NexusMessage {
 	t.Helper()
-	c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	const perRead = 5 * time.Second
 	for {
+		c.SetReadDeadline(time.Now().Add(perRead))
 		var m NexusMessage
 		if err := c.ReadJSON(&m); err != nil {
 			t.Fatalf("read: %v", err)
@@ -311,5 +314,75 @@ func TestSmoke_OfflineDelivery(t *testing.T) {
 	})
 	if got.Sender != "alice" {
 		t.Fatalf("queued msg sender wrong: %q", got.Sender)
+	}
+}
+
+// TestSmoke_KeyRequestRelay confirms friends can exchange key_request through
+// the relay (required for NaCl box handoff between desktop and web).
+func TestSmoke_KeyRequestRelay(t *testing.T) {
+	srv, _, wsBase := newTestServer(t)
+
+	registerAndVerify(t, srv, "alice", "password123")
+	registerAndVerify(t, srv, "bob", "password123")
+	// Mutual accepted friendship (minimal DB seed).
+	if _, err := srv.DB.Exec(
+		`INSERT INTO friends (user_a, user_b, status) VALUES ('alice', 'bob', 'accepted')`,
+	); err != nil {
+		t.Fatalf("seed friends: %v", err)
+	}
+
+	alice := dial(t, wsBase)
+	bob := dial(t, wsBase)
+	auth(t, alice, "alice", "password123")
+	auth(t, bob, "bob", "password123")
+	time.Sleep(100 * time.Millisecond)
+
+	if err := bob.WriteJSON(NexusMessage{
+		Type: "key_request", Recipient: "alice",
+	}); err != nil {
+		t.Fatalf("bob key_request: %v", err)
+	}
+	got := readUntil(t, alice, func(m NexusMessage) bool {
+		return m.Type == "key_request" && m.Sender == "bob"
+	})
+	if got.Recipient != "alice" {
+		t.Fatalf("key_request recipient wrong: %+v", got)
+	}
+}
+
+// TestSmoke_PresencePublicKeyForward confirms a directed presence with a
+// 32-byte public_key reaches the recipient friend (NaCl key handoff).
+func TestSmoke_PresencePublicKeyForward(t *testing.T) {
+	srv, _, wsBase := newTestServer(t)
+
+	registerAndVerify(t, srv, "alice", "password123")
+	registerAndVerify(t, srv, "bob", "password123")
+	if _, err := srv.DB.Exec(
+		`INSERT INTO friends (user_a, user_b, status) VALUES ('alice', 'bob', 'accepted')`,
+	); err != nil {
+		t.Fatalf("seed friends: %v", err)
+	}
+
+	alice := dial(t, wsBase)
+	bob := dial(t, wsBase)
+	auth(t, alice, "alice", "password123")
+	auth(t, bob, "bob", "password123")
+	time.Sleep(100 * time.Millisecond)
+
+	pk := make([]byte, 32)
+	for i := range pk {
+		pk[i] = byte(i + 1)
+	}
+	if err := alice.WriteJSON(NexusMessage{
+		Type: "presence", Recipient: "bob", Status: "Online",
+		PublicKey: pk, KeyFingerprint: "deadbeefcafebabe",
+	}); err != nil {
+		t.Fatalf("alice presence: %v", err)
+	}
+	got := readUntil(t, bob, func(m NexusMessage) bool {
+		return m.Type == "presence" && m.Sender == "alice" && len(m.PublicKey) == 32
+	})
+	if got.KeyFingerprint != "deadbeefcafebabe" {
+		t.Fatalf("fingerprint lost: %+v", got)
 	}
 }

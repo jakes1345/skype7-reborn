@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/color"
 	"io"
 	"log"
 	"net/http"
@@ -31,15 +31,16 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"phaze-native/internal/chat"
+	"phaze-native/internal/crypto"
+	"phaze-native/internal/sentinel"
+	"phaze-native/internal/ui"
+
 	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/speaker"
 	"github.com/faiface/beep/wav"
 	"github.com/pion/webrtc/v3"
-	"phaze-native/internal/chat"
-	"phaze-native/internal/crypto"
-	"phaze-native/internal/sentinel"
-	"phaze-native/internal/ui"
 )
 
 type Infrastructure struct {
@@ -73,7 +74,7 @@ func humanSize(n int) string {
 }
 
 const (
-	Version        = "1.0.0-Phaze (Forensic)"
+	Version        = "1.0.0"
 	keyringService = "phaze-sovereign"
 )
 
@@ -201,7 +202,7 @@ func NewPhazeApp() *PhazeApp {
 	}
 
 	a := app.NewWithID("world.phazechat.app")
-	
+
 	// Load the Premium Master Icon from the Vault
 	a.SetIcon(ui.GetAssetResource("assets/Icon.png"))
 
@@ -219,7 +220,7 @@ func NewPhazeApp() *PhazeApp {
 		log.Fatal(err)
 	}
 
-	// Skype 7.41 Forensic Schema
+	// Local SQLite cache for accounts, contacts, and message history (legacy column names).
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS Accounts (
 			id INTEGER PRIMARY KEY,
@@ -503,25 +504,12 @@ func (s *PhazeApp) ShowProfileWindow(username string) {
 }
 
 func (s *PhazeApp) ShowBuyCreditDialog() {
-	win := s.App.NewWindow("Phaze Credit")
-	win.Resize(fyne.NewSize(400, 300))
-
-	options := widget.NewRadioGroup([]string{"$5.00", "$10.00", "$25.00"}, func(s string) {})
-	options.SetSelected("$10.00")
-
-	win.SetContent(container.NewPadded(container.NewVBox(
-		widget.NewLabelWithStyle("Add Phaze Credit", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		widget.NewLabel("You can use Phaze Credit to call mobiles and landlines at low rates."),
-		options,
-		layout.NewSpacer(),
-		widget.NewButton("Add Credit", func() {
-			dialog.ShowInformation("Phaze API", "Connecting to "+PhazeInfra.API+"...", win)
-			win.Close()
-		}),
-	)))
-	win.Show()
+	dialog.ShowInformation("Phaze — call credit",
+		"In-app purchase of PSTN credit is not implemented yet.\n\n"+
+			"When your Nexus operator enables Telnyx, carrier calls are billed to that account — not through this client.\n\n"+
+			"Phaze-to-Phaze voice uses WebRTC in a chat and does not use call credit.",
+		s.MainWindow)
 }
-
 
 // ---------- Network ----------
 
@@ -684,8 +672,8 @@ func (s *PhazeApp) CheckForUpdates() {
 
 	if verData.Version != Version {
 		s.App.SendNotification(fyne.NewNotification("Sovereign Update", "Version "+verData.Version+" is available."))
-		dialog.ShowConfirm("Sovereign Update", 
-			"A new version of Phaze ("+verData.Version+") is available. Would you like to visit the download portal?", 
+		dialog.ShowConfirm("Sovereign Update",
+			"A new version of Phaze ("+verData.Version+") is available. Would you like to visit the download portal?",
 			func(ok bool) {
 				if ok {
 					u, _ := url.Parse(s.Infra.API + "/download")
@@ -1243,19 +1231,29 @@ func (s *PhazeApp) PlaySound(name string) {
 	}
 	go func() {
 		soundPath := ui.ResolveAsset(filepath.Join("assets", "sounds", name))
-		f, err := os.Open(soundPath)
-		if err != nil {
-			return // Sound file missing, skip silently
+		var r io.Reader
+		var file *os.File
+		if f, err := os.Open(soundPath); err == nil {
+			info, err := f.Stat()
+			if err == nil && info.Size() > 0 {
+				file = f
+				r = f
+			} else {
+				f.Close()
+			}
 		}
-		defer f.Close()
-
-		// Check file is not empty
-		info, err := f.Stat()
-		if err != nil || info.Size() == 0 {
-			return // Empty placeholder, skip
+		if r == nil {
+			b, ok := ui.VaultSoundBytes(name)
+			if !ok {
+				return
+			}
+			r = bytes.NewReader(b)
+		}
+		if file != nil {
+			defer file.Close()
 		}
 
-		streamer, _, err := wav.Decode(f)
+		streamer, _, err := wav.Decode(r)
 		if err != nil {
 			return
 		}
@@ -1525,9 +1523,20 @@ func (s *PhazeApp) OpenChat(name string) fyne.CanvasObject {
 	s.ChatTypingLabels[name] = typingLabel
 	typingLabel.Hide()
 
+	headerStatus := "Group"
+	if !isGroup {
+		headerStatus = "Unknown"
+		for _, f := range s.Friends {
+			if f.Username == name {
+				headerStatus = f.Status
+				break
+			}
+		}
+	}
+
 	chatProps := ui.ChatViewProps{
 		Name:    title,
-		Status:  "Active now", // TODO: Get real status
+		Status:  headerStatus,
 		IsGroup: isGroup,
 		Slicer:  s.Slicer,
 		OnCall:  func() { s.StartCall(name) },
@@ -1734,16 +1743,17 @@ func (s *PhazeApp) ShowMainWindow() {
 	}
 
 	s.Sidebar = ui.NewPhazeSidebar(ui.SidebarProps{
-		Username:    s.Username,
-		Status:      "Online",
-		AvatarPath:  s.AvatarPath,
-		Slicer:      s.Slicer,
-		OnChatOpen:  s.handleChatOpen,
-		OnAddFriend: s.showAddContactDialog,
-		OnNewGroup:  s.showNewGroupDialog,
-		RecentChats: s.Friends,
-		OnProfile:   s.ShowMyProfileWindow,
-		CompactMode: s.CompactMode,
+		Username:        s.Username,
+		Status:          "Online",
+		AvatarPath:      s.AvatarPath,
+		Slicer:          s.Slicer,
+		OnChatOpen:      s.handleChatOpen,
+		OnAddFriend:     s.showAddContactDialog,
+		OnNewGroup:      s.showNewGroupDialog,
+		RecentChats:     s.Friends,
+		OnProfile:       s.ShowMyProfileWindow,
+		CompactMode:     s.CompactMode,
+		PSTNDialEnabled: os.Getenv("PHAZE_ENABLE_PSTN") == "true",
 		OnDialCall: func(number string) {
 			s.PlaySound("CallOutgoing.wav")
 			s.SendMessage(NexusMessage{
@@ -1767,14 +1777,16 @@ func (s *PhazeApp) ShowMainWindow() {
 	s.ContentStack = container.NewStack(s.HomeView)
 
 	// --- Toolbar (Top Bar) ---
+	billingNote := widget.NewLabel("PSTN billing: in-app credit not wired — Telnyx on Nexus when enabled.")
+	billingNote.Wrapping = fyne.TextWrapWord
 	toolbar := container.NewHBox(
 		widget.NewButtonWithIcon("", theme.HomeIcon(), func() {
 			s.ContentStack.Objects = []fyne.CanvasObject{s.HomeView}
 			s.ContentStack.Refresh()
 		}),
 		layout.NewSpacer(),
-		widget.NewLabel("Phaze Credit: $0.00"),
-		widget.NewButton("Add Credit", s.ShowBuyCreditDialog),
+		billingNote,
+		widget.NewButton("Details", s.ShowBuyCreditDialog),
 	)
 
 	// --- Setup Main Menu ---
@@ -1794,17 +1806,18 @@ func (s *PhazeApp) rebuildSidebar() {
 		return
 	}
 	s.Sidebar = ui.NewPhazeSidebar(ui.SidebarProps{
-		Username:     s.Username,
-		Status:       "Online",
-		AvatarPath:   s.AvatarPath,
-		Slicer:       s.Slicer,
-		OnChatOpen:   s.handleChatOpen,
-		OnChatWindow: s.handleChatWindowOpen,
-		OnAddFriend:  s.showAddContactDialog,
-		OnNewGroup:   s.showNewGroupDialog,
-		RecentChats:  s.Friends,
-		OnProfile:    s.ShowMyProfileWindow,
-		CompactMode:  s.CompactMode,
+		Username:        s.Username,
+		Status:          "Online",
+		AvatarPath:      s.AvatarPath,
+		Slicer:          s.Slicer,
+		OnChatOpen:      s.handleChatOpen,
+		OnChatWindow:    s.handleChatWindowOpen,
+		OnAddFriend:     s.showAddContactDialog,
+		OnNewGroup:      s.showNewGroupDialog,
+		RecentChats:     s.Friends,
+		OnProfile:       s.ShowMyProfileWindow,
+		CompactMode:     s.CompactMode,
+		PSTNDialEnabled: os.Getenv("PHAZE_ENABLE_PSTN") == "true",
 		OnDialCall: func(number string) {
 			s.PlaySound("CallOutgoing.wav")
 			s.SendMessage(NexusMessage{
@@ -2546,7 +2559,7 @@ func (s *PhazeApp) showEchoCallDialog() {
 		widget.NewButtonWithIcon("End Call", theme.CancelIcon(), func() { win.Close() }),
 	)
 
-	win.SetContent(container.NewStack(canvas.NewRectangle(color.White), container.NewPadded(content)))
+	win.SetContent(container.NewStack(canvas.NewRectangle(ui.PhazeShell), container.NewPadded(content)))
 	win.Show()
 
 	go func() {
@@ -2698,23 +2711,18 @@ func (s *PhazeApp) showAboutDialog() {
 	logo.SetMinSize(fyne.NewSize(150, 75))
 	logo.FillMode = canvas.ImageFillContain
 
-	credits := widget.NewRichTextFromMarkdown(`
-# Phaze™ 7.41 Reborn
-**Version:** 1.0.0-Forensic (Mesh-Ready)
+	credits := widget.NewRichTextFromMarkdown(fmt.Sprintf(`
+# Phaze
 
-**The Team:**
-* MJ (Lead Forensic Engineer)
-* Antigravity (Sovereign AI Architect)
+**Version:** %s
 
-**Official Site:** [phaze.world](https://phaze.world)
+**Product:** Private chat and voice with Nexus relay and optional E2EE.
 
-**Special Thanks:**
-* The Gophers of the Mesh
-* Original Skype 7.41 Engineering Team (2014)
+**Site:** [phazechat.world](https://phazechat.world)
 
 ---
-*Phaze is a sovereign, bit-perfect reconstruction. Not affiliated with Microsoft Corporation.*
-`)
+*Phaze is independent software. Not affiliated with Microsoft Corporation or Skype.*
+`, Version))
 	credits.Wrapping = fyne.TextWrapWord
 
 	win.SetContent(container.NewPadded(container.NewVBox(

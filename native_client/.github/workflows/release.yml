@@ -1,4 +1,4 @@
-name: TAZHER Build & Release
+name: Phaze native client build
 
 on:
   push:
@@ -32,16 +32,16 @@ jobs:
         run: |
           go work sync
           if [ "${{ matrix.target }}" == "windows" ]; then
-            GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -ldflags="-H windowsgui" -o tazher-windows.exe ./native_client
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -ldflags="-H windowsgui" -o phaze-windows-amd64.exe ./native_client
           else
-            GOOS=linux GOARCH=amd64 go build -o tazher-linux ./native_client
+            GOOS=linux GOARCH=amd64 go build -o phaze-linux-amd64 ./native_client
           fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tazher-${{ matrix.target }}
-          path: tazher-*
+          name: phaze-${{ matrix.target }}
+          path: phaze-*
 
   build_macos:
     runs-on: macos-latest
@@ -58,12 +58,12 @@ jobs:
       - name: Build Binary
         run: |
           go work sync
-          GOOS=darwin GOARCH=amd64 go build -o tazher-macos ./native_client
-          GOOS=darwin GOARCH=arm64 go build -o tazher-macos-arm64 ./native_client
+          GOOS=darwin GOARCH=amd64 go build -o phaze-darwin-amd64 ./native_client
+          GOOS=darwin GOARCH=arm64 go build -o phaze-darwin-arm64 ./native_client
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tazher-macos
-          path: tazher-macos*
+          name: phaze-macos
+          path: phaze-darwin-*
 

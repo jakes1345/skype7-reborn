@@ -17,6 +17,7 @@ import (
 	"net/smtp"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -50,6 +51,12 @@ func originAllowed(r *http.Request) bool {
 	return allowedOrigins[r.Header.Get("Origin")]
 }
 
+// pstnBridgeEnabled gates Twilio outbound PSTN. Default off so relays run
+// WebRTC-only (Phaze-to-Phaze) with no carrier or Twilio call charges.
+func pstnBridgeEnabled() bool {
+	return strings.EqualFold(os.Getenv("PHAZE_ENABLE_PSTN"), "true")
+}
+
 type ipLimiter struct {
 	mu       sync.Mutex
 	limiters map[string]*rate.Limiter
@@ -63,12 +70,12 @@ func newIPLimiter(r rate.Limit, burst int) *ipLimiter {
 
 func (l *ipLimiter) allow(ip string) bool {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	lim, ok := l.limiters[ip]
 	if !ok {
 		lim = rate.NewLimiter(l.r, l.burst)
 		l.limiters[ip] = lim
 	}
-	l.mu.Unlock()
 	return lim.Allow()
 }
 
@@ -963,6 +970,13 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 
 		switch msg.Type {
 		case "pstn_call":
+			if !pstnBridgeEnabled() {
+				client.Send(NexusMessage{
+					Type:  "pstn_status",
+					Error: "PSTN bridge is disabled on this relay. Use in-app voice/video (WebRTC) with Phaze contacts — no phone network or Twilio required.",
+				})
+				continue
+			}
 			number := msg.Body
 			// SECURITY CHECK: Verify this number belongs to this sender
 			var verified int
@@ -1367,6 +1381,18 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			if username == "" {
 				continue
 			}
+			// Directed key handoff (native_client replies to key_request with a
+			// presence carrying public_key + recipient = requester).
+			if msg.Recipient != "" && len(msg.PublicKey) == 32 && s.areFriends(username, msg.Recipient) {
+				msg.Sender = username
+				s.Mu.RLock()
+				if peer, ok := s.Clients[msg.Recipient]; ok {
+					if err := peer.Send(msg); err != nil {
+						log.Printf("[presence] key forward to %s: %v", msg.Recipient, err)
+					}
+				}
+				s.Mu.RUnlock()
+			}
 			log.Printf("User %s is now %s", username, msg.Status)
 			s.Mu.Lock()
 			if client, ok := s.Clients[username]; ok {
@@ -1557,6 +1583,23 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			s.Mu.RUnlock()
 
+		// Pairwise public-key handoff for NaCl box E2EE. Desktop clients send
+		// this when they need a peer's key; the recipient answers with a
+		// "presence" message carrying public_key (see native_client).
+		case "key_request":
+			if username == "" || msg.Recipient == "" {
+				continue
+			}
+			if !s.areFriends(username, msg.Recipient) {
+				continue
+			}
+			msg.Sender = username
+			s.Mu.RLock()
+			if recipientClient, ok := s.Clients[msg.Recipient]; ok {
+				recipientClient.Send(msg)
+			}
+			s.Mu.RUnlock()
+
 		case "call_offer", "call_answer", "ice_candidate":
 			if username == "" {
 				continue
@@ -1674,7 +1717,7 @@ func (s *NexusServer) downloadHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *NexusServer) fileDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/downloads/")
-	
+
 	// Force octet-stream + attachment for every binary so mobile browsers
 	// (Samsung Internet, Chrome Android) save to Downloads instead of
 	// handing off to the package installer or a file viewer.
@@ -1692,7 +1735,7 @@ func (s *NexusServer) fileDownloadHandler(w http.ResponseWriter, r *http.Request
 		w.Header().Set("Content-Disposition", "attachment; filename=\"Phaze.linux\"")
 		w.Header().Set("Cache-Control", "no-store")
 	}
-	
+
 	http.ServeFile(w, r, "public/downloads/"+path)
 }
 
@@ -1786,7 +1829,63 @@ func (s *NexusServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 
 // ---------- Main ----------
 
+// resolveWorkingDir sets the process working directory so relative paths
+// templates/, public/, and the default SQLite file resolve correctly when
+// the binary is launched from outside nexus_server/ (for example ../bin/phaze-nexus).
+func resolveWorkingDir() {
+	if d := strings.TrimSpace(os.Getenv("PHAZE_ASSET_ROOT")); d != "" {
+		abs, err := filepath.Abs(d)
+		if err != nil {
+			log.Printf("[nexus] PHAZE_ASSET_ROOT: %v", err)
+			return
+		}
+		if err := os.Chdir(abs); err != nil {
+			log.Printf("[nexus] PHAZE_ASSET_ROOT chdir %q: %v", abs, err)
+		} else {
+			log.Printf("[nexus] working directory: %s (PHAZE_ASSET_ROOT)", abs)
+		}
+		return
+	}
+	if _, err := os.Stat("templates/landing.html"); err == nil {
+		if wd, err := os.Getwd(); err == nil {
+			log.Printf("[nexus] working directory: %s", wd)
+		}
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("[nexus] could not resolve executable: %v", err)
+		return
+	}
+	exeDir := filepath.Clean(filepath.Dir(exe))
+	candidates := []string{
+		exeDir,
+		filepath.Join(exeDir, "..", "nexus_server"),
+		filepath.Join(exeDir, "..", "..", "nexus_server"),
+	}
+	for _, c := range candidates {
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(abs, "templates", "landing.html")); err != nil {
+			continue
+		}
+		if err := os.Chdir(abs); err != nil {
+			log.Printf("[nexus] chdir %q: %v", abs, err)
+			continue
+		}
+		log.Printf("[nexus] working directory: %s (auto-detected)", abs)
+		return
+	}
+	if wd, err := os.Getwd(); err == nil {
+		log.Printf("[nexus] working directory: %s (templates/ not found; some pages use built-in HTML fallback)", wd)
+	}
+}
+
 func main() {
+	resolveWorkingDir()
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -1964,7 +2063,7 @@ func (s *NexusServer) handleBotMessage(client *Client, msg NexusMessage) {
 		Type:      "msg",
 		Sender:    "PhazeBot",
 		Recipient: msg.Sender,
-		Body:      "I am the Phaze Mesh Assistant. Try these commands: /mesh, /version, /pstn",
+		Body:      "I am the Phaze Mesh Assistant. Try: /mesh, /version, /pstn (PSTN status), /webrtc",
 	}
 
 	cmd := strings.ToLower(strings.TrimSpace(msg.Body))
@@ -1974,10 +2073,16 @@ func (s *NexusServer) handleBotMessage(client *Client, msg NexusMessage) {
 		count := len(s.Clients)
 		s.Mu.RUnlock()
 		reply.Body = fmt.Sprintf("The Phaze Mesh currently has %d active sovereign peers.", count)
+	case cmd == "/webrtc":
+		reply.Body = "Phaze voice/video uses WebRTC (Pion on desktop, browser APIs on web). Signaling goes over Nexus; media is peer-to-peer when possible, with TURN from your relay when NAT blocks direct paths."
 	case cmd == "/version":
 		reply.Body = "Nexus Server v1.0.0-Phaze | Build: Enterprise-Mesh"
 	case cmd == "/pstn":
-		reply.Body = "PSTN Bridge is ACTIVE. Link your phone in Settings to use Caller ID."
+		if pstnBridgeEnabled() {
+			reply.Body = "PSTN bridge is ON for this relay (Twilio). Link your phone in Settings for verified outbound. Otherwise use WebRTC calls in chat."
+		} else {
+			reply.Body = "PSTN bridge is OFF. Voice/video is WebRTC between Phaze users only — no carrier charges."
+		}
 	}
 	client.Send(reply)
 }

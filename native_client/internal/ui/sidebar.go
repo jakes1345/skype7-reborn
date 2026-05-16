@@ -1,9 +1,8 @@
 package ui
 
 import (
-	"image/color"
-
 	"time"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -12,30 +11,31 @@ import (
 )
 
 type FriendInfo struct {
-	Username string
-	Status   string
+	Username    string
+	Status      string
 	Avatar      string
 	Mood        string
 	DisplayName string
 }
 
 type SidebarProps struct {
-	Username       string
-	Status         string
-	Mood           string
-	AvatarPath     string
-	Slicer         *AeroSlicer
-	OnChatOpen     func(name string)
-	OnChatWindow   func(name string)
-	OnAddFriend    func()
-	OnNewGroup     func()
-	OnSearch       func(query string)
-	OnSettings     func()
-	OnProfile      func()
-	OnDialCall     func(number string)
-	OnStatusChange func(status string)
-	RecentChats    []FriendInfo
-	CompactMode    bool
+	Username        string
+	Status          string
+	Mood            string
+	AvatarPath      string
+	Slicer          *AeroSlicer
+	OnChatOpen      func(name string)
+	OnChatWindow    func(name string)
+	OnAddFriend     func()
+	OnNewGroup      func()
+	OnSearch        func(query string)
+	OnSettings      func()
+	OnProfile       func()
+	OnDialCall      func(number string)
+	PSTNDialEnabled bool // Twilio PSTN tab; off by default (WebRTC in chat)
+	OnStatusChange  func(status string)
+	RecentChats     []FriendInfo
+	CompactMode     bool
 }
 
 func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
@@ -46,11 +46,11 @@ func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
 	}
 	avatar := NewAvatarWithStatus(avatarSize, props.Status, props.AvatarPath)
 	nameLabel := widget.NewLabelWithStyle(props.Username, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	
+
 	// Real click handler on avatar area
 	avatarBtn := widget.NewButton("", props.OnProfile)
 	avatarBtn.Importance = widget.LowImportance
-	
+
 	var rightContent fyne.CanvasObject
 	if !props.CompactMode {
 		statusSelect := widget.NewSelect([]string{"Online", "Away", "Do Not Disturb", "Invisible"}, props.OnStatusChange)
@@ -65,19 +65,16 @@ func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
 		rightContent,
 	)
 
-	profileBg := canvas.NewRectangle(color.NRGBA{R: 0, G: 175, B: 240, A: 255}) // Phaze Blue
+	profileBg := canvas.NewRectangle(PhazeBlue)
 	profileContainer := container.NewStack(profileBg, container.NewPadded(profileHeader))
-	
+
 	// Use Border to keep header at top without stretching
 	sidebarHeader := container.NewVBox(profileContainer)
-
-
-
 
 	// 2. Search & Buttons
 	search := widget.NewEntry()
 	search.SetPlaceHolder("Search...")
-	
+
 	actionButtons := container.NewGridWithColumns(3,
 		widget.NewButtonWithIcon("Add", theme.ContentAddIcon(), props.OnAddFriend),
 		widget.NewButtonWithIcon("Group", theme.ContentAddIcon(), props.OnNewGroup),
@@ -103,7 +100,7 @@ func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
 			friend := props.RecentChats[i]
 			label := o.(*fyne.Container).Objects[1].(*widget.Label)
 			label.SetText(friend.Username)
-			
+
 			avatarWrap := o.(*fyne.Container).Objects[0].(*fyne.Container)
 			size := float32(36)
 			if props.CompactMode {
@@ -115,7 +112,7 @@ func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
 	)
 	var lastID widget.ListItemID = -1
 	var lastTime time.Time
-	
+
 	list.OnSelected = func(id widget.ListItemID) {
 		now := time.Now()
 		if id == lastID && now.Sub(lastTime) < 500*time.Millisecond {
@@ -130,11 +127,21 @@ func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
 		list.Unselect(id) // Prevent persistent highlight blocking re-clicks
 	}
 
-	// 4. Tabs
+	// 4. Tabs — PSTN dial pad only when PHAZE_ENABLE_PSTN=true; otherwise steer users to WebRTC in chat.
+	var dialTab *container.TabItem
+	if props.PSTNDialEnabled && props.OnDialCall != nil {
+		dialTab = container.NewTabItem("Dial", NewPhazeDialpad(DialpadProps{OnCall: props.OnDialCall}))
+	} else {
+		hint := widget.NewLabel("PSTN dialing is turned off.\n\nUse the phone or camera button inside a chat for Phaze-to-Phaze voice and video over WebRTC — no carrier or Twilio call charges.")
+		hint.Wrapping = fyne.TextWrapWord
+		dialTab = container.NewTabItem("Calls", container.NewPadded(hint))
+	}
+	contactsHint := widget.NewLabel("Your saved contacts appear under Recent after you chat. Use Search above to find someone on your Nexus server, or Add from the home view. A dedicated contact list is planned.")
+	contactsHint.Wrapping = fyne.TextWrapWord
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Recent", list),
-		container.NewTabItem("Contacts", widget.NewLabel("Global Mesh Directory")),
-		container.NewTabItem("Dial", NewPhazeDialpad(DialpadProps{OnCall: props.OnDialCall})),
+		container.NewTabItem("Contacts", container.NewPadded(contactsHint)),
+		dialTab,
 	)
 
 	sidebarContent := container.NewBorder(
@@ -143,7 +150,7 @@ func NewPhazeSidebar(props SidebarProps) fyne.CanvasObject {
 		tabs,
 	)
 
-	bg := canvas.NewRectangle(color.NRGBA{R: 240, G: 245, B: 250, A: 255})
+	bg := canvas.NewRectangle(PhazeShell)
 
 	return container.NewStack(bg, container.NewPadded(sidebarContent))
 }

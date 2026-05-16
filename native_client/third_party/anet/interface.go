@@ -1,11 +1,12 @@
+//go:build !android
+// +build !android
+
 // Package anet is a local shim replacing github.com/wlynxg/anet.
-//
-// Upstream anet uses //go:linkname to hook into net.zoneCache on Android,
-// which Go 1.23+ rejects with `link: invalid reference to net.zoneCache`
-// and breaks fyne-cross android builds. On real phones we don't need the
-// containerized-Android IPv6 zone fix anet was designed for — the stdlib
-// passthrough works fine. This shim just calls stdlib net.* on every
-// platform (mirroring upstream's non-Android behavior).
+// Upstream uses //go:linkname to net.zoneCache which Go 1.23+ refuses
+// with "invalid reference to net.zoneCache", breaking fyne-cross
+// android builds. This shim ports upstream's netlink-based Android
+// implementation minus the zoneCache optimization, and falls through
+// to stdlib net on every other platform.
 package anet
 
 import "net"

@@ -124,30 +124,36 @@
     <section class="platform-section">
         <div class="container">
             <h2>Choose your platform</h2>
+            <p style="text-align:center;color:var(--text-light);font-size:0.9rem;max-width:640px;margin:0 auto 28px;">
+                Official builds are published on
+                <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" target="_blank" rel="noopener noreferrer">GitHub Releases</a>
+                (Windows, Linux, macOS, Android). Buttons below prefer those links when available, and fall back to this server’s <code>/downloads/</code> mirror.
+                Linux updates via Flatpak/Flathub are <a href="https://github.com/jakes1345/skype7-reborn/blob/HEAD/docs/LINUX_DISTRIBUTION.md" target="_blank" rel="noopener noreferrer">documented here</a> (not on Flathub yet).
+            </p>
             <div class="platform-grid" id="platforms">
                 <div class="platform-card" id="card-windows">
                     <span class="platform-icon">🪟</span>
                     <div class="platform-name">Windows</div>
                     <div class="platform-detail">Windows 10+ · x64 · <strong>Surface Pro</strong></div>
-                    <a href="/downloads/Phaze.exe" download="Phaze.exe" class="platform-btn">Download .exe</a>
+                    <a href="/downloads/Phaze.exe" download="Phaze.exe" class="platform-btn" data-dl="windows">Download .exe / zip</a>
                 </div>
                 <div class="platform-card" id="card-linux">
                     <span class="platform-icon">🐧</span>
                     <div class="platform-name">Linux</div>
-                    <div class="platform-detail">Ubuntu, Fedora, Arch, Debian · x64</div>
-                    <a href="/downloads/Phaze.linux" download="Phaze.linux" class="platform-btn">Download binary</a>
+                    <div class="platform-detail">Ubuntu, Fedora, Arch, Debian · x64 &amp; arm64</div>
+                    <a href="/downloads/Phaze.linux" download="Phaze.linux" class="platform-btn" data-dl="linux">Download archive</a>
                 </div>
-                <div class="platform-card soon" id="card-macos">
+                <div class="platform-card" id="card-macos">
                     <span class="platform-icon">🍎</span>
                     <div class="platform-name">macOS</div>
-                    <div class="platform-detail">Ventura+ · Intel & Apple Silicon</div>
-                    <span class="platform-btn disabled">Build in progress</span>
+                    <div class="platform-detail">Ventura+ · Intel &amp; Apple Silicon</div>
+                    <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" target="_blank" rel="noopener noreferrer" class="platform-btn" data-dl="macos">Download for Mac</a>
                 </div>
                 <div class="platform-card" id="card-android">
                     <span class="platform-icon">📱</span>
                     <div class="platform-name">Android</div>
                     <div class="platform-detail">Android 10+ · ARM64</div>
-                    <a href="/downloads/Phaze.apk" download="Phaze.apk" class="platform-btn">Download .apk</a>
+                    <a href="/downloads/Phaze.apk" download="Phaze.apk" class="platform-btn" data-dl="android">Download .apk</a>
                 </div>
             </div>
         </div>
@@ -204,7 +210,9 @@
         <div class="container">
             <h3>Sovereign Verification</h3>
             <p style="text-align: center; color: var(--text-light); margin-bottom: 30px;">
-                Phaze binaries are self-signed and sovereign. Verify your download bit-for-bit using the fingerprints below.
+                Phaze binaries are self-signed and sovereign. Compare your file against <strong>checksums.txt</strong> on the
+                <a href="https://github.com/jakes1345/skype7-reborn/releases/latest" target="_blank" rel="noopener noreferrer">latest GitHub release</a>
+                (SHA-256 per asset). The list below is illustrative only; always trust the checksum file shipped with the release you downloaded.
             </p>
             <div style="background:#fff7e6;border-left:4px solid #ffa500;padding:16px 20px;border-radius:4px;margin:0 0 30px;font-size:0.9rem;color:#333;">
                 <strong>Windows SmartScreen / "unknown publisher" warning?</strong><br>
@@ -220,16 +228,12 @@
             </div>
             <div class="verify-grid">
                 <div class="verify-item">
-                    <strong>Phaze.apk (Android)</strong>
-                    <code>SHA-256: ae3965ebb3edd052092b180516013cfc809ecc0e5955872aed0031b7fdb39fca</code>
+                    <strong>checksums.txt (authoritative)</strong>
+                    <code>Open the release → download checksums.txt → match the line for your file (e.g. Phaze_windows_amd64.zip, Phaze.apk).</code>
                 </div>
                 <div class="verify-item">
-                    <strong>Phaze.exe (Windows)</strong>
-                    <code>SHA-256: 5589ed36ec4717af93cc0669975d58622dba51286ef04728c8d3ea8bb6ab2aef</code>
-                </div>
-                <div class="verify-item">
-                    <strong>Phaze.linux (Linux x86_64)</strong>
-                    <code>SHA-256: 1517851fc3e38a33c3c46c1e540fd8b1b274ab5a55fe83edec07fa21968be1b4</code>
+                    <strong>Example commands</strong>
+                    <code>Windows: Get-FileHash .\Phaze_windows_amd64.zip -Algorithm SHA256 · Linux/macOS: sha256sum Phaze_linux_amd64.tar.gz</code>
                 </div>
             </div>
         </div>
@@ -242,14 +246,103 @@
     </footer>
 
     <script>
-        // Auto-detect platform and mark as recommended
-        const ua = navigator.userAgent.toLowerCase();
-        let card;
-        if (ua.includes('win')) card = document.getElementById('card-windows');
-        else if (ua.includes('mac')) card = document.getElementById('card-macos');
-        else if (ua.includes('linux')) card = document.getElementById('card-linux');
-        else if (ua.includes('android')) card = document.getElementById('card-android');
-        if (card) card.classList.add('recommended');
+        (function () {
+            const REPO = 'jakes1345/skype7-reborn';
+            const API_LATEST = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+            const WEB_LATEST = 'https://github.com/' + REPO + '/releases/latest';
+
+            const fallback = {
+                windows: '/downloads/Phaze.exe',
+                linux: '/downloads/Phaze.linux',
+                android: '/downloads/Phaze.apk',
+                macos: WEB_LATEST
+            };
+
+            function pick(assets, pred) {
+                for (var i = 0; i < assets.length; i++) {
+                    if (pred(assets[i])) return assets[i].browser_download_url;
+                }
+                return null;
+            }
+
+            function resolveUrls(assets, ua) {
+                var win =
+                    pick(assets, function (x) { return /^Phaze_windows_amd64\.zip$/i.test(x.name); }) ||
+                    pick(assets, function (x) { return /\.exe$/i.test(x.name); }) ||
+                    pick(assets, function (x) { return /windows/i.test(x.name) && /\.zip$/i.test(x.name); });
+
+                var linuxArm = pick(assets, function (x) { return /^Phaze_linux_arm64\.tar\.gz$/i.test(x.name); });
+                var linuxAmd = pick(assets, function (x) { return /^Phaze_linux_amd64\.tar\.gz$/i.test(x.name); });
+                var linux = linuxAmd;
+                if ((/\baarch64\b|\barm64\b/).test(ua) && /linux/.test(ua) && !/android/.test(ua)) {
+                    linux = linuxArm || linuxAmd;
+                } else {
+                    linux = linuxAmd || linuxArm;
+                }
+
+                var macArm = pick(assets, function (x) { return /^Phaze-macos-arm64\.tar\.gz$/i.test(x.name); });
+                var macAmd = pick(assets, function (x) { return /^Phaze-macos-amd64\.tar\.gz$/i.test(x.name); });
+                var mac = macArm;
+                if ((/intel|i686|x86_64|amd64/).test(ua) && (/mac|darwin/).test(ua)) {
+                    mac = macAmd || macArm;
+                } else {
+                    mac = macArm || macAmd;
+                }
+
+                var apk =
+                    pick(assets, function (x) { return /^Phaze\.apk$/i.test(x.name); }) ||
+                    pick(assets, function (x) { return /\.apk$/i.test(x.name); });
+
+                return { windows: win, linux: linux, macos: mac || null, android: apk };
+            }
+
+            function wireButton(cardId, url, fb, labelMacHint) {
+                var card = document.getElementById(cardId);
+                if (!card) return;
+                var a = card.querySelector('a.platform-btn[data-dl]');
+                if (!a) return;
+                var finalUrl = url || fb;
+                if (!finalUrl) return;
+                a.href = finalUrl;
+                if (finalUrl.indexOf('http') === 0) {
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.removeAttribute('download');
+                }
+                if (labelMacHint && cardId === 'card-macos' && url) {
+                    a.textContent = /arm64/.test(url) ? 'Download (Apple Silicon)' : 'Download (Intel)';
+                }
+            }
+
+            function markRecommended(ua) {
+                var card;
+                if (ua.indexOf('win') !== -1) card = document.getElementById('card-windows');
+                else if (ua.indexOf('mac') !== -1 || ua.indexOf('darwin') !== -1) card = document.getElementById('card-macos');
+                else if (ua.indexOf('linux') !== -1) card = document.getElementById('card-linux');
+                else if (ua.indexOf('android') !== -1) card = document.getElementById('card-android');
+                if (card) card.classList.add('recommended');
+            }
+
+            var ua = navigator.userAgent.toLowerCase();
+            markRecommended(ua);
+
+            fetch(API_LATEST)
+                .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('github')); })
+                .then(function (rel) {
+                    var assets = rel.assets || [];
+                    var u = resolveUrls(assets, ua);
+                    wireButton('card-windows', u.windows, fallback.windows);
+                    wireButton('card-linux', u.linux, fallback.linux);
+                    wireButton('card-android', u.android, fallback.android);
+                    wireButton('card-macos', u.macos, fallback.macos, true);
+                })
+                .catch(function () {
+                    wireButton('card-windows', null, fallback.windows);
+                    wireButton('card-linux', null, fallback.linux);
+                    wireButton('card-android', null, fallback.android);
+                    wireButton('card-macos', null, fallback.macos);
+                });
+        })();
     </script>
 </body>
 </html>

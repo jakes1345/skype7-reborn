@@ -1,5 +1,7 @@
 // soundgen generates classic Shadow-style sound effects as WAV files.
-// Run: go run ./cmd/soundgen
+//
+// Run from native_client: go run ./cmd/soundgen
+// Custom output dir (absolute or relative): go run ./cmd/soundgen ../nexus_server/public/phaze/assets/sounds
 package main
 
 import (
@@ -13,7 +15,12 @@ const sampleRate = 44100
 
 func main() {
 	dir := filepath.Join("assets", "sounds")
-	os.MkdirAll(dir, 0755)
+	if len(os.Args) > 1 && os.Args[1] != "" {
+		dir = os.Args[1]
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		panic(err)
+	}
 
 	// Classic Shadow 7 sound approximations
 	generate(dir, "Login.wav", loginSound())
@@ -41,7 +48,7 @@ func main() {
 func messageOutgoingSound() []float64 {
 	dur := 0.35
 	buf := make([]float64, int(dur*sampleRate))
-	addTone(buf, 1318.51, 0.0, 0.10, 0.35, true) // E6
+	addTone(buf, 1318.51, 0.0, 0.10, 0.35, true)  // E6
 	addTone(buf, 1567.98, 0.08, 0.18, 0.40, true) // G6
 	return buf
 }
@@ -59,9 +66,9 @@ func friendOnlineSound() []float64 {
 func echoGreetingSound() []float64 {
 	dur := 1.6
 	buf := make([]float64, int(dur*sampleRate))
-	addTone(buf, 523.25, 0.00, 0.40, 0.45, true)  // C5
-	addTone(buf, 659.25, 0.40, 0.40, 0.50, true)  // E5
-	addTone(buf, 783.99, 0.80, 0.70, 0.55, true)  // G5
+	addTone(buf, 523.25, 0.00, 0.40, 0.45, true) // C5
+	addTone(buf, 659.25, 0.40, 0.40, 0.50, true) // E5
+	addTone(buf, 783.99, 0.80, 0.70, 0.55, true) // G5
 	return buf
 }
 
@@ -86,11 +93,11 @@ func loginSound() []float64 {
 		duration float64
 		vol      float64
 	}{
-		{523.25, 0.0, 0.25, 0.5},   // C5
-		{587.33, 0.2, 0.25, 0.55},  // D5
-		{659.25, 0.4, 0.25, 0.6},   // E5
-		{783.99, 0.6, 0.25, 0.65},  // G5
-		{1046.50, 0.8, 0.8, 0.7},   // C6 (held longer)
+		{523.25, 0.0, 0.25, 0.5},  // C5
+		{587.33, 0.2, 0.25, 0.55}, // D5
+		{659.25, 0.4, 0.25, 0.6},  // E5
+		{783.99, 0.6, 0.25, 0.65}, // G5
+		{1046.50, 0.8, 0.8, 0.7},  // C6 (held longer)
 	}
 
 	for _, n := range notes {
@@ -106,7 +113,7 @@ func messageReceivedSound() []float64 {
 	samples := int(dur * sampleRate)
 	buf := make([]float64, samples)
 
-	addTone(buf, 880.0, 0.0, 0.2, 0.4, true)   // A5
+	addTone(buf, 880.0, 0.0, 0.2, 0.4, true)      // A5
 	addTone(buf, 1108.73, 0.15, 0.35, 0.45, true) // C#6
 
 	return buf
@@ -188,7 +195,7 @@ func addTone(buf []float64, freq, startSec, durSec, volume float64, smooth bool)
 		}
 
 		t := float64(i) / sampleRate
-		sample := math.Sin(2 * math.Pi * freq * t) * volume
+		sample := math.Sin(2*math.Pi*freq*t) * volume
 
 		if smooth {
 			// Apply ADSR-style envelope
@@ -246,13 +253,13 @@ func generate(dir, name string, samples []float64) {
 
 	// fmt chunk
 	f.Write([]byte("fmt "))
-	binary.Write(f, binary.LittleEndian, uint32(16))     // chunk size
-	binary.Write(f, binary.LittleEndian, uint16(1))      // PCM
-	binary.Write(f, binary.LittleEndian, uint16(1))      // mono
+	binary.Write(f, binary.LittleEndian, uint32(16)) // chunk size
+	binary.Write(f, binary.LittleEndian, uint16(1))  // PCM
+	binary.Write(f, binary.LittleEndian, uint16(1))  // mono
 	binary.Write(f, binary.LittleEndian, uint32(sampleRate))
 	binary.Write(f, binary.LittleEndian, uint32(sampleRate*2)) // byte rate
-	binary.Write(f, binary.LittleEndian, uint16(2))      // block align
-	binary.Write(f, binary.LittleEndian, uint16(16))     // bits per sample
+	binary.Write(f, binary.LittleEndian, uint16(2))            // block align
+	binary.Write(f, binary.LittleEndian, uint16(16))           // bits per sample
 
 	// data chunk
 	f.Write([]byte("data"))

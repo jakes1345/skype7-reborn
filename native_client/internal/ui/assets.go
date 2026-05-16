@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -44,7 +45,9 @@ func UnlockVault() error {
 	tr := tar.NewReader(gr)
 	for {
 		header, err := tr.Next()
-		if err == io.EOF { break }
+		if err == io.EOF {
+			break
+		}
 		buf := new(bytes.Buffer)
 		io.Copy(buf, tr)
 		vaultCache[header.Name] = buf.Bytes()
@@ -85,6 +88,53 @@ func ResolveAsset(rel string) string {
 		}
 	}
 	return rel // fall back; caller will see the open error
+}
+
+// VaultSoundBytes returns WAV bytes for name (e.g. "Login.wav") from the decrypted vault,
+// trying common tar entry prefixes. Playback uses this when assets/sounds is missing on disk.
+func VaultSoundBytes(name string) ([]byte, bool) {
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return nil, false
+	}
+	keys := []string{
+		path.Join("sounds", name),
+		path.Join("assets", "sounds", name),
+	}
+	for _, k := range keys {
+		if b, ok := vaultCache[k]; ok && len(b) > 0 {
+			return b, true
+		}
+	}
+	return nil, false
+}
+
+// ReadAssetRaw loads bytes for a path under assets/ (e.g. "emoticons/emoticon_smile.png")
+// from the vault or filesystem. Used for emoticons when avoiding the default-theme placeholder.
+func ReadAssetRaw(rel string) ([]byte, bool) {
+	rel = strings.TrimPrefix(rel, "assets/")
+	if strings.Contains(rel, "..") {
+		return nil, false
+	}
+	rel = path.Clean("/" + rel)
+	rel = strings.TrimPrefix(rel, "/")
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return nil, false
+	}
+	tryKeys := []string{rel}
+	if b := path.Base(rel); b != "" && b != "." && b != "/" {
+		tryKeys = append(tryKeys, path.Join("emoticons", b))
+	}
+	for _, k := range tryKeys {
+		if b, ok := vaultCache[k]; ok && len(b) > 64 {
+			return b, true
+		}
+	}
+	p := ResolveAsset("assets/" + rel)
+	data, err := os.ReadFile(p)
+	if err == nil && len(data) > 64 {
+		return data, true
+	}
+	return nil, false
 }
 
 // AeroSlicer extracts pixel-perfect UI elements from the original Phaze 7
