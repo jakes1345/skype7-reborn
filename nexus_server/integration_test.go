@@ -386,3 +386,82 @@ func TestSmoke_PresencePublicKeyForward(t *testing.T) {
 		t.Fatalf("fingerprint lost: %+v", got)
 	}
 }
+
+// TestSmoke_DeleteAccount confirms the GDPR erasure path nukes the user and
+// cascades to friends + offline_messages + sessions. Reports BY the user are
+// removed; reports ABOUT them are retained.
+func TestSmoke_DeleteAccount(t *testing.T) {
+	srv, _, wsBase := newTestServer(t)
+
+	registerAndVerify(t, srv, "alice", "password123")
+	registerAndVerify(t, srv, "bob", "password123")
+	if _, err := srv.DB.Exec(
+		`INSERT INTO friends (user_a, user_b, status) VALUES ('alice', 'bob', 'accepted')`,
+	); err != nil {
+		t.Fatalf("seed friends: %v", err)
+	}
+	if _, err := srv.DB.Exec(
+		`INSERT INTO offline_messages (sender, recipient, body) VALUES ('alice', 'bob', 'hello')`,
+	); err != nil {
+		t.Fatalf("seed offline_messages: %v", err)
+	}
+	if _, err := srv.DB.Exec(
+		`INSERT INTO abuse_reports (reporter, subject, reason) VALUES ('alice', 'carol', 'spam'), ('carol', 'alice', 'rude')`,
+	); err != nil {
+		t.Fatalf("seed abuse_reports: %v", err)
+	}
+
+	alice := dial(t, wsBase)
+	auth(t, alice, "alice", "password123")
+
+	// Wrong password is rejected without deleting the account.
+	if err := alice.WriteJSON(NexusMessage{Type: "delete_account", Body: "wrong"}); err != nil {
+		t.Fatalf("send delete (wrong): %v", err)
+	}
+	res := readUntil(t, alice, func(m NexusMessage) bool { return m.Type == "delete_account_result" })
+	if res.Status == "ok" {
+		t.Fatalf("wrong-password delete should not succeed: %+v", res)
+	}
+
+	// Confirm alice still exists.
+	var n int
+	srv.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE username = 'alice'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("alice should still exist after wrong password: count=%d", n)
+	}
+
+	// Correct password succeeds.
+	if err := alice.WriteJSON(NexusMessage{Type: "delete_account", Body: "password123"}); err != nil {
+		t.Fatalf("send delete (correct): %v", err)
+	}
+	res = readUntil(t, alice, func(m NexusMessage) bool { return m.Type == "delete_account_result" })
+	if res.Status != "ok" {
+		t.Fatalf("delete failed: %+v", res)
+	}
+
+	// users row gone.
+	srv.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE username = 'alice'`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("alice not erased: count=%d", n)
+	}
+	// friendship gone.
+	srv.DB.QueryRow(`SELECT COUNT(*) FROM friends WHERE user_a = 'alice' OR user_b = 'alice'`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("friend rows not erased: count=%d", n)
+	}
+	// offline messages gone.
+	srv.DB.QueryRow(`SELECT COUNT(*) FROM offline_messages WHERE sender = 'alice' OR recipient = 'alice'`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("offline_messages not erased: count=%d", n)
+	}
+	// reports BY alice gone.
+	srv.DB.QueryRow(`SELECT COUNT(*) FROM abuse_reports WHERE reporter = 'alice'`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("reports BY alice not erased: count=%d", n)
+	}
+	// reports ABOUT alice retained.
+	srv.DB.QueryRow(`SELECT COUNT(*) FROM abuse_reports WHERE subject = 'alice'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("reports ABOUT alice should be retained: count=%d", n)
+	}
+}

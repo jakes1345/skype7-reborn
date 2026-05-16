@@ -468,6 +468,44 @@ func (s *NexusServer) revokeSession(token string) {
 	s.DB.Exec("UPDATE session_tokens SET revoked = 1 WHERE token = ?", token)
 }
 
+// deleteAccount performs a GDPR Article 17 ("right to erasure") cascade for a
+// single user. Runs in a single transaction so partial failure leaves the
+// account intact. Reports MADE BY the user are removed; reports ABOUT the
+// user are retained (the subject column is just text, so the username string
+// remains in the safety log — this is the legitimate-interests carve-out).
+func (s *NexusServer) deleteAccount(username string) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	statements := []struct {
+		sql  string
+		args []any
+	}{
+		{`DELETE FROM friends WHERE user_a = ? OR user_b = ?`, []any{username, username}},
+		{`DELETE FROM offline_messages WHERE sender = ? OR recipient = ?`, []any{username, username}},
+		{`DELETE FROM conversation_members WHERE username = ?`, []any{username}},
+		{`DELETE FROM conversations WHERE created_by = ?`, []any{username}},
+		{`DELETE FROM blocks WHERE blocker = ? OR blocked = ?`, []any{username, username}},
+		{`DELETE FROM abuse_reports WHERE reporter = ?`, []any{username}},
+		{`DELETE FROM session_tokens WHERE username = ?`, []any{username}},
+		{`DELETE FROM password_resets WHERE username = ?`, []any{username}},
+		{`DELETE FROM qr_login_tokens WHERE username = ?`, []any{username}},
+		// Drop the user last — every other row referencing the username is
+		// already gone, so a foreign-key constraint (if added later) would still
+		// pass.
+		{`DELETE FROM users WHERE username = ?`, []any{username}},
+	}
+	for _, q := range statements {
+		if _, err := tx.Exec(q.sql, q.args...); err != nil {
+			return fmt.Errorf("deleteAccount %q: %w", q.sql, err)
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *NexusServer) totpStatus(username string) (secret string, enabled bool) {
 	var e int
 	s.DB.QueryRow("SELECT totp_secret, totp_enabled FROM users WHERE username = ?", username).Scan(&secret, &e)
@@ -1218,6 +1256,36 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			s.revokeSession(msg.QRToken)
 			client.Send(NexusMessage{Type: "session_revoked", Status: "ok"})
+
+		case "delete_account":
+			// GDPR Article 17 — right to erasure. Requires the user to be
+			// authenticated AND to confirm their password in msg.Body so an
+			// attacker with a stolen session token can't nuke the account.
+			if username == "" {
+				client.Send(NexusMessage{Type: "delete_account_result", Error: "Not authenticated"})
+				continue
+			}
+			if msg.Body == "" || !s.authenticateUser(username, msg.Body) {
+				client.Send(NexusMessage{Type: "delete_account_result", Error: "Password confirmation required"})
+				continue
+			}
+			if err := s.deleteAccount(username); err != nil {
+				log.Printf("[delete_account] %s: %v", username, err)
+				client.Send(NexusMessage{Type: "delete_account_result", Error: "Internal error — try again"})
+				continue
+			}
+			log.Printf("[delete_account] erased account %s", username)
+			// Notify friends so their rosters update.
+			s.broadcastPresence(username, "Offline")
+			client.Send(NexusMessage{Type: "delete_account_result", Status: "ok"})
+			// Drop the connection and the in-memory client entry.
+			s.Mu.Lock()
+			if cur, ok := s.Clients[username]; ok && cur == client {
+				delete(s.Clients, username)
+			}
+			s.Mu.Unlock()
+			ws.Close()
+			return
 
 		case "resend_verification":
 			var email string
