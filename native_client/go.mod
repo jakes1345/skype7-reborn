@@ -10,7 +10,7 @@ require (
 	github.com/libp2p/go-libp2p v0.33.2
 	github.com/libp2p/go-libp2p-kad-dht v0.25.2
 	github.com/pion/mediadevices v0.9.4
-	github.com/pion/rtp v1.8.26
+	github.com/pion/rtp v1.10.2
 	github.com/pion/webrtc/v3 v3.2.49
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.36.0
