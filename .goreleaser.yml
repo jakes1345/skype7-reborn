@@ -58,6 +58,9 @@ archives:
       {{ if eq .Os "darwin" }}phaze-nexus_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ else }}Phaze_{{ .Os }}_{{ .Arch }}{{ end }}
     files:
       - README.md
+      - SECURITY.md
+      - docs/BETA.md
+      - docs/PRE_BETA_CHECKLIST.md
       - LICENSE
       - native_client/assets/**/*
       - nexus_server/templates/**/*
@@ -90,7 +93,7 @@ release:
   header: |
     ## Phaze — {{ .Tag }}
 
-    Phaze native client and Nexus relay server binaries.
+    Phaze (Skype-style sovereign chat, voice, and video) and the Nexus relay.
 
-    - **phaze**: Desktop client (Fyne / Go).
-    - **phaze-nexus**: WebSocket and HTTP relay for accounts, chat, and optional PSTN/SMS hooks.
+    - **phaze**: Native Fyne desktop/mobile client (see `README.md` for platform notes).
+    - **phaze-nexus**: WebSocket relay and account services, optional PSTN/SMS hooks (Twilio).

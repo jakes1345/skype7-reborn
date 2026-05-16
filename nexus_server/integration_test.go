@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -553,4 +554,24 @@ func TestSmoke_AdminBanFlow(t *testing.T) {
 		t.Fatalf("non-admin call status %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestHealth_JSON(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	srv.healthHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health: want 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("status: %v", body["status"])
+	}
+	if body["database_ok"] != true {
+		t.Fatalf("database_ok: %v", body["database_ok"])
+	}
 }

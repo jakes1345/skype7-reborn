@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Phaze — sovereign chat &amp; calls</title>
-<meta name="description" content="Phaze: self-hostable chat, voice, and video with a Go relay and native + web clients.">
+<title>Phaze — Classic-style chat and calls (open source)</title>
+<meta name="description" content="Phaze: sovereign Skype-style chat, voice, and video in Go. E2EE messaging, self-hostable Nexus relay. Desktop (Linux, Windows) and Android.">
+
 <style>
   :root {
     --aero-blue: #00AFF0;
@@ -83,19 +84,30 @@
     color: var(--muted);
     font-size: 13px;
     border-top: 1px solid var(--border);
-    margin-top: 48px;
+    margin-top: 60px;
   }
-  .disclaimer { font-size: 12px; color: var(--muted); max-width: 640px; margin: 20px auto 0; }
+  .disclaimer {
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 640px;
+    margin: 24px auto 0;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
 
 <header>
   <h1>Phaze</h1>
-  <p class="tagline">Chat, voice, and video you control — Go relay, encrypted messages, WebRTC media.</p>
+  <p class="tagline">Classic Skype-style chat and calls — rebuilt in Go. Open source, self-hostable, no ads.</p>
+
   <div class="downloads">
-    <a class="btn" href="https://phazechat.world/download">Download</a>
-    <a class="btn" href="https://phazechat.world/">phazechat.world</a>
+    <a class="btn" href="https://github.com/jakes1345/skype7-reborn/releases/latest">Download</a>
+    <a class="btn ghost" href="https://phazechat.world/">Public relay</a>
+    <a class="btn ghost" href="https://github.com/jakes1345/skype7-reborn">View on GitHub</a>
+  </div>
+  <div class="disclaimer">
+    MIT license. Public relay: <code>phazechat.world</code>. Pre-1.0 — see the repo README for current capabilities and limits.
   </div>
   <p class="disclaimer">Self-host the open-source <strong>nexus_server</strong> and point <strong>native_client</strong> / <strong>web</strong> at your relay. See the repository <code>README.md</code> for build steps.</p>
 </header>
@@ -103,30 +115,48 @@
 <main>
 <div class="features">
   <div class="feature">
-    <h3>Modern clients</h3>
-    <p>Fyne desktop &amp; Android from one Go codebase; web client for browsers — same Nexus protocol.</p>
+    <h3>Classic-style UI</h3>
+    <p>Fyne desktop experience inspired by the Aero-era Skype look.</p>
   </div>
   <div class="feature">
-    <h3>Encryption</h3>
+    <h3>Encrypted messages</h3>
     <p>Pairwise NaCl box for direct messages; per-member envelopes for groups so the relay never sees plaintext bodies.</p>
   </div>
   <div class="feature">
-    <h3>WebRTC calls</h3>
-    <p>Voice and video over Pion (native) and browser APIs (web, in progress) with TURN from your relay.</p>
+    <h3>Voice &amp; video</h3>
+    <p>WebRTC voice (PCMU). VP8 video on Linux desktop; Windows + Android use more constrained video paths — see README.</p>
   </div>
   <div class="feature">
-    <h3>Self-hostable</h3>
-    <p>SQLite-backed relay by default. Your users, your data policy.</p>
+    <h3>Group chats</h3>
+    <p>Named conversations; per-member ciphertext fan-out so the relay does not see message bodies.</p>
+  </div>
+  <div class="feature">
+    <h3>Accounts &amp; security</h3>
+    <p>Email verification, password reset, optional TOTP 2FA, QR sign-in, encrypted local SQLite on desktop, GDPR account-delete.</p>
+  </div>
+  <div class="feature">
+    <h3>Self-hostable relay</h3>
+    <p>Run your own Nexus (Docker or <code>go run</code>). Clients can point at your <code>wss://</code> host. Built-in <code>/metrics</code> and litestream backups when you configure S3 credentials.</p>
   </div>
 </div>
 
-<h2>Run your own relay</h2>
-<pre><code>cd nexus_server &amp;&amp; go build -o phaze-nexus &amp;&amp; ./phaze-nexus</code></pre>
-<p>Set <code>PORT</code>, <code>DB_PATH</code>, and TURN env vars as documented in the main README.</p>
+<h2>Quick start</h2>
+<p>Download the archive for your platform from GitHub Releases, extract, and run the <code>phaze</code> binary (Windows: <code>phaze.exe</code>). First launch walks you through account creation against the configured server (default: public relay). The desktop app self-updates from GitHub Releases with SHA-256 verification.</p>
+
+<h2>Run your own server</h2>
+<pre><code>docker run -p 8080:8080 -v nexus_data:/data \
+  ghcr.io/jakes1345/skype7-reborn-nexus:latest</code></pre>
+<p>Or clone the repo and <code>go run ./nexus_server</code>. Point clients at your WebSocket URL (e.g. <code>wss://your-host/ws</code>).</p>
+
+<h2>Contribute &amp; beta</h2>
+<p>Issues and PRs welcome at <a href="https://github.com/jakes1345/skype7-reborn">github.com/jakes1345/skype7-reborn</a>. Use the <strong>Bug report</strong> and <strong>Beta feedback</strong> issue templates when testing prereleases.</p>
+<p><strong>Not yet the focus of v1:</strong> Opus wideband audio, iOS/macOS desktop, multi-relay federation, screen sharing, and full WebRTC parity in the web client — track the README roadmap.</p>
+
 </main>
 
 <footer>
-  Phaze is an independent project. Skype is a trademark of Microsoft Corporation; Phaze is not affiliated with Microsoft.
+  Phaze is an independent project (Skype 7 Reborn lineage).<br>
+  Skype is a trademark of Microsoft Corporation. Not affiliated with or endorsed by Microsoft.
 </footer>
 </body>
 </html>

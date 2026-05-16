@@ -1,11 +1,10 @@
 name: Deploy Pages
 
+# Run on every push so the workflow's "last run" stays aligned with master
+# alongside Phaze CI and Apple verification (static site content lives in ./docs).
 on:
   push:
     branches: [master, main]
-    paths:
-      - 'docs/**'
-      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -1834,9 +1835,40 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 
 // ---------- Health Check ----------
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
+func (s *NexusServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok","server":"phaze-nexus","version":"1.0.0"}`))
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	dbOK := s.DB.PingContext(ctx) == nil
+
+	v := os.Getenv("Phaze_LATEST_VERSION")
+	if v == "" {
+		v = "1.0.0-Phaze"
+	}
+
+	turnOK := TurnSecret != "" && TurnURL != ""
+
+	s.Mu.RLock()
+	clients := len(s.Clients)
+	s.Mu.RUnlock()
+
+	status := "ok"
+	code := http.StatusOK
+	if !dbOK {
+		status = "degraded"
+		code = http.StatusServiceUnavailable
+	}
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":            status,
+		"server":            "phaze-nexus",
+		"version":           v,
+		"database_ok":       dbOK,
+		"turn_configured":   turnOK,
+		"connected_clients": clients,
+	})
 }
 
 // ---------- Metrics (Prometheus text format) ----------
@@ -2662,7 +2694,7 @@ func main() {
 	http.HandleFunc("/legal", server.legalHandler)
 	http.HandleFunc("/reset", server.resetHandler)
 	http.HandleFunc("/version", server.versionHandler)
-	http.HandleFunc("/health", healthHandler)
+	http.HandleFunc("/health", server.healthHandler)
 	http.HandleFunc("/metrics", server.metricsHandler)
 	http.HandleFunc("/api/v1/admin/reports", server.adminReportsHandler)
 	http.HandleFunc("/api/v1/admin/reports/", server.adminResolveReportHandler) // /{id}/resolve

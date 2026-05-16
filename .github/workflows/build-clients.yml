@@ -1,0 +1,127 @@
+# Cross-compile Phaze client packages (Fyne) for common desktop and mobile targets.
+#
+# Uses fyne-io/fyne-cross (Docker on Linux; native toolchain on macOS for Darwin).
+# Artifacts are attached to each workflow run (Actions → this workflow → latest run).
+#
+# iOS packaging often needs signing / full Xcode beyond what hosted runners provide;
+# that step is best-effort and does not fail the workflow.
+
+name: Build Client Packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - 'native_client/**'
+      - '.github/workflows/build-clients.yml'
+      - 'go.work'
+  schedule:
+    # Weekly full matrix so artifacts stay fresh even with low commit volume
+    - cron: '0 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-clients-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fyne-cross-docker:
+    name: fyne-cross (Linux, Windows, Android, FreeBSD, Web)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: native_client/go.sum
+
+      - name: Cache fyne-cross Docker layers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fyne-cross
+          key: fyne-cross-cache-${{ runner.os }}-${{ hashFiles('native_client/go.sum') }}
+
+      - name: Install fyne tooling
+        run: |
+          go install github.com/fyne-io/fyne-cross@latest
+          go install fyne.io/fyne/v2/cmd/fyne@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Docker engine
+        run: docker version
+
+      - name: Linux (amd64, arm64)
+        working-directory: native_client
+        run: fyne-cross linux --arch amd64,arm64 --pull -app-id world.phazechat.app
+
+      - name: Windows (amd64)
+        working-directory: native_client
+        run: fyne-cross windows --arch amd64 --pull -app-id world.phazechat.app
+
+      - name: Android (arm64 APK)
+        working-directory: native_client
+        run: fyne-cross android --arch arm64 --pull -app-id world.phazechat.app -icon assets/Icon.png
+
+      - name: FreeBSD (amd64)
+        continue-on-error: true
+        working-directory: native_client
+        run: fyne-cross freebsd --arch amd64 --pull -app-id world.phazechat.app
+
+      - name: Web (WASM bundle)
+        continue-on-error: true
+        working-directory: native_client
+        run: fyne-cross web --pull -app-id world.phazechat.app
+
+      - name: Upload fyne-cross output
+        uses: actions/upload-artifact@v4
+        with:
+          name: phaze-client-linux-windows-android-freebsd-web-${{ github.sha }}
+          path: |
+            native_client/fyne-cross/
+          retention-days: 21
+          if-no-files-found: warn
+
+  fyne-cross-apple:
+    name: fyne-cross (macOS desktop + iOS best-effort)
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: native_client/go.sum
+
+      - name: Install deps and fyne tooling
+        run: |
+          brew install libvpx pkg-config
+          go install github.com/fyne-io/fyne-cross@latest
+          go install fyne.io/fyne/v2/cmd/fyne@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: macOS (amd64 + arm64)
+        working-directory: native_client
+        run: fyne-cross darwin --arch amd64,arm64 --pull -app-id world.phazechat.app
+
+      - name: iOS (best effort — signing may be required)
+        id: ios
+        continue-on-error: true
+        working-directory: native_client
+        run: fyne-cross ios --pull -app-id world.phazechat.app
+
+      - name: Upload fyne-cross output
+        uses: actions/upload-artifact@v4
+        with:
+          name: phaze-client-macos-ios-${{ github.sha }}
+          path: |
+            native_client/fyne-cross/
+          retention-days: 21
+          if-no-files-found: warn

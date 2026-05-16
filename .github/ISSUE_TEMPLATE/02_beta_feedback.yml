@@ -1,0 +1,37 @@
+name: Beta feedback
+description: UX friction, missing polish, or "almost works" observations during the public beta
+labels: ["beta-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for **non-crashing** feedback: confusing flows, wording, performance, or feature gaps.
+        For crashes or broken behaviour, use **Bug report** instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Onboarding (signup, email verify, login)
+        - Contacts and friends
+        - 1:1 chat
+        - Group chat
+        - Voice / video call
+        - File transfer
+        - Settings (server, 2FA, notifications)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: feedback
+    attributes:
+      label: What would you change or clarify?
+      description: If you have a suggested fix or copy, include it here.
+    validations:
+      required: true
+  - type: checkboxes
+    id: first_time
+    attributes:
+      label: Context
+      options:
+        - label: First-time user (first day with Phaze)

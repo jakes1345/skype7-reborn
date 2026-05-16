@@ -17,6 +17,9 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+          cache-dependency-path: |
+            native_client/go.sum
+            nexus_server/go.sum
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -28,25 +31,26 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxkbcommon-dev libpulse-dev
+          sudo apt-get install -y pkg-config libgl1-mesa-dev xorg-dev libasound2-dev \
+            libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxkbcommon-dev \
+            libpulse-dev libvpx-dev
 
-      - name: Build Phaze (native + nexus)
+      - name: Build workspace binaries
         run: |
           go work sync
           go build -o phaze-native-linux ./native_client
           go build -o phaze-nexus-linux ./nexus_server
 
-      - name: Test Go suites
+      - name: Test suite
         run: |
           cd native_client && go test -v ./internal/...
           cd ../nexus_server && go test -race -count=1 -v ./...
 
-      - name: Go vet (native + nexus)
+      - name: Go vet
         run: |
           cd native_client && go vet ./...
           cd ../nexus_server && go vet ./...
 
-      - name: Install and build web client
+      - name: Web client (install, build, test, lint)
         run: |
           cd web && npm ci && npm run build && npm run test && npm run lint
-

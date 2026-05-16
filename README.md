@@ -6,6 +6,12 @@ Live at **[phazechat.world](https://phazechat.world)**.
 
 > **Status: pre-1.0, unverified in the field.** Builds run end-to-end on the maintainer's box, but third-party real-device testing has not happened yet. If you try it and something breaks, open an issue — that's the whole point of where we are right now.
 
+**Public beta gate checklist:** [docs/BETA.md](docs/BETA.md) (CI deps, tag naming, smoke matrix, known limitations).
+
+**Pre-beta finalization:** [docs/PRE_BETA_CHECKLIST.md](docs/PRE_BETA_CHECKLIST.md) (security, matrix testing, ops, doc truth).
+
+**Security disclosures:** [SECURITY.md](SECURITY.md).
+
 ---
 
 ## What actually works today
@@ -31,7 +37,7 @@ Live at **[phazechat.world](https://phazechat.world)**.
 - **No production installers** — no MSI, no pkg, no AppImage, no auto-update channel
 - **Windows VP8** — mingw cross-build can't link libvpx without building it from source first; Windows client still uses JPEG video
 - **Mobile interop with new group E2EE** is untested on a real device (S23 ↔ desktop verification is the next gate)
-- **Limited observability** — `/health` and `/api/v1/stats` exist on the relay, but there is no structured logging, dashboards, or alerting pipeline yet
+- **Observability** — `/health` (JSON with `database_ok`, `turn_configured`, `connected_clients`), `/metrics` (Prometheus text format with auth / key-request / PSTN / convo counters, optional bearer-auth), and `/api/v1/stats`. Still no structured logging or hosted dashboards.
 
 ---
 
@@ -80,6 +86,10 @@ Wire protocol: `docs/WS_PROTOCOL.md`. Roadmap: `PHAZE_ENGINEERING_GUIDELINE.md`.
 export ANDROID_HOME="$HOME/Android/Sdk"
 make android
 ```
+
+## CI-built client bundles (all platforms)
+
+The workflow **[Build Client Packages](.github/workflows/build-clients.yml)** runs when `native_client/` or that workflow changes, on a **weekly** schedule, and via **Actions → Build Client Packages → Run workflow**. It uploads **fyne-cross** artifacts: Linux (amd64, arm64), Windows (amd64), Android (arm64 APK), macOS (amd64, arm64); **FreeBSD**, **Web/WASM**, and **iOS** steps are best-effort on hosted runners (toolchain/signing). Open the latest successful run and download the **Artifacts** zip(s).
 
 ## TURN
 

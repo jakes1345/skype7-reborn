@@ -1,0 +1,71 @@
+name: Bug report
+description: Client or Nexus relay misbehaviour, crashes, or incorrect behaviour
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Phaze. Please include enough detail that we can reproduce the issue.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Desktop client (Fyne)
+        - Android client
+        - Nexus relay / server
+        - Website / download pages
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Client or relay version / git tag
+      description: e.g. beta/v0.9.0-rc1, or "go build from main @ abc1234"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Android
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list, starting from a clean launch if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Redact passwords, session tokens, and email OTP codes.
+  - type: checkboxes
+    id: network
+    attributes:
+      label: Network context (optional)
+      options:
+        - label: Behind corporate proxy / VPN
+        - label: Symmetric NAT / mobile tether
+        - label: TURN was required for calls (NAT-heavy)
