@@ -1,0 +1,18 @@
+# Self-hosted Nexus on your own VPS (e.g. phazechat.world behind Caddy/nginx).
+# TLS is expected on the reverse proxy; Nexus listens on localhost only.
+services:
+  nexus:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      PORT: "8080"
+      DB_PATH: /data/nexus.db
+      # Required for browser WebSocket from your real web origin(s):
+      Phaze_ALLOWED_ORIGINS: "https://phazechat.world,https://www.phazechat.world"
+    volumes:
+      - nexus_data:/data
+
+volumes:
+  nexus_data:

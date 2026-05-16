@@ -1,0 +1,11 @@
+# Copy this file to `local.mk` (gitignored) to pin Android paths on your machine.
+#
+# Android Studio IDE (Linux .tar.gz), e.g.:
+#   /home/jack/android-studio/bin/studio.sh
+# The SDK is stored separately — not inside the IDE tree. After opening
+# Android Studio once and using SDK Manager, it is usually:
+#   /home/jack/Android/Sdk
+#
+# Phaze builds need ANDROID_HOME + NDK under $(ANDROID_HOME)/ndk/
+
+ANDROID_HOME := /home/jack/Android/Sdk

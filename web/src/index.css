@@ -1,0 +1,26 @@
+/* Global shell for Phaze Web — classic light messenger frame (Phaze-branded, not Skype). */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  font-family: 'Segoe UI', 'Tahoma', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: #dce8f2;
+  color: #1a1a1a;
+}
+
+#root {
+  min-height: 100%;
+  max-width: none;
+  margin: 0;
+  text-align: initial;
+  border: none;
+}

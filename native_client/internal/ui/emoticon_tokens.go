@@ -1,0 +1,177 @@
+package ui
+
+import (
+	"regexp"
+	"strings"
+)
+
+// emoticonMap maps chat / picker shortcuts → file path under assets/ (Phaze-original artwork via cmd/emoticongen).
+// Classic Skype-style parenthesis codes and ASCII smilies; not Microsoft asset files.
+var emoticonMap = map[string]string{
+	"(smile)":       "emoticons/emoticon_smile.png",
+	":)":            "emoticons/emoticon_smile.png",
+	":-)":           "emoticons/emoticon_smile.png",
+	"(happy)":       "emoticons/emoticon_smile.png",
+	"(sad)":         "emoticons/emoticon_sad.png",
+	":(":            "emoticons/emoticon_sad.png",
+	":-(":           "emoticons/emoticon_sad.png",
+	"(laugh)":       "emoticons/emoticon_laugh.png",
+	":D":            "emoticons/emoticon_laugh.png",
+	":-D":           "emoticons/emoticon_laugh.png",
+	"(wink)":        "emoticons/emoticon_wink.png",
+	";)":            "emoticons/emoticon_wink.png",
+	";-)":           "emoticons/emoticon_wink.png",
+	"(heart)":       "emoticons/emoticon_heart.png",
+	"<3":            "emoticons/emoticon_heart.png",
+	"(kiss)":        "emoticons/emoticon_kiss.png",
+	":*":            "emoticons/emoticon_kiss.png",
+	":-*":           "emoticons/emoticon_kiss.png",
+	"(cool)":        "emoticons/emoticon_cool.png",
+	"8-)":           "emoticons/emoticon_cool.png",
+	"(tongue)":      "emoticons/emoticon_tongue.png",
+	":p":            "emoticons/emoticon_tongue.png",
+	":P":            "emoticons/emoticon_tongue.png",
+	":-p":           "emoticons/emoticon_tongue.png",
+	":-P":           "emoticons/emoticon_tongue.png",
+	"(surprised)":   "emoticons/emoticon_surprised.png",
+	":o":            "emoticons/emoticon_surprised.png",
+	":O":            "emoticons/emoticon_surprised.png",
+	"(angry)":       "emoticons/emoticon_angry.png",
+	"x(":            "emoticons/emoticon_angry.png",
+	"X(":            "emoticons/emoticon_angry.png",
+	"(cry)":         "emoticons/emoticon_cry.png",
+	"(crying)":      "emoticons/emoticon_cry.png",
+	":'(":           "emoticons/emoticon_cry.png",
+	"(bored)":       "emoticons/emoticon_bored.png",
+	"|-)":           "emoticons/emoticon_bored.png",
+	"(dull)":        "emoticons/emoticon_bored.png",
+	"(confused)":    "emoticons/emoticon_confused.png",
+	":S":            "emoticons/emoticon_confused.png",
+	":s":            "emoticons/emoticon_confused.png",
+	"(wonder)":      "emoticons/emoticon_wonder.png",
+	"(embarrassed)": "emoticons/emoticon_embarrassed.png",
+	":$":            "emoticons/emoticon_embarrassed.png",
+	"(blush)":       "emoticons/emoticon_blush.png",
+	"(devil)":       "emoticons/emoticon_devil.png",
+	"(angel)":       "emoticons/emoticon_angel.png",
+	"(coffee)":      "emoticons/emoticon_coffee.png",
+	"(pizza)":       "emoticons/emoticon_pizza.png",
+	"(beer)":        "emoticons/emoticon_beer.png",
+	"(drink)":       "emoticons/emoticon_drink.png",
+	"(cake)":        "emoticons/emoticon_cake.png",
+	"(sun)":         "emoticons/emoticon_sun.png",
+	"(moon)":        "emoticons/emoticon_moon.png",
+	"(star)":        "emoticons/emoticon_star.png",
+	"(rain)":        "emoticons/emoticon_rain.png",
+	"(snow)":        "emoticons/emoticon_snow.png",
+	"(phone)":       "emoticons/emoticon_phone.png",
+	"(music)":       "emoticons/emoticon_music.png",
+	"(movie)":       "emoticons/emoticon_movie.png",
+	"(film)":        "emoticons/emoticon_movie.png",
+	"(flower)":      "emoticons/emoticon_flower.png",
+	"(rose)":        "emoticons/emoticon_rose.png",
+	"(brokenheart)": "emoticons/emoticon_brokenheart.png",
+	"(u)":           "emoticons/emoticon_brokenheart.png",
+	"(clap)":        "emoticons/emoticon_clap.png",
+	"(handshake)":   "emoticons/emoticon_handshake.png",
+	"(muscle)":      "emoticons/emoticon_muscle.png",
+	"(flex)":        "emoticons/emoticon_muscle.png",
+	"(thumbsup)":    "emoticons/emoticon_thumbsup.png",
+	"(y)":           "emoticons/emoticon_thumbsup.png",
+	"(thumbsdown)":  "emoticons/emoticon_thumbsdown.png",
+	"(n)":           "emoticons/emoticon_thumbsdown.png",
+	"(bow)":         "emoticons/emoticon_bow.png",
+	"(wave)":        "emoticons/emoticon_wave.png",
+	"(hug)":         "emoticons/emoticon_hug.png",
+	"(finger)":      "emoticons/emoticon_finger.png",
+	"(toivo)":       "emoticons/emoticon_toivo.png",
+	"(rock)":        "emoticons/emoticon_rock.png",
+	"(poolparty)":   "emoticons/emoticon_poolparty.png",
+	"(pool)":        "emoticons/emoticon_poolparty.png",
+	"(mooning)":     "emoticons/emoticon_mooning.png",
+	"(bug)":         "emoticons/emoticon_bug.png",
+	"(drunk)":       "emoticons/emoticon_drunk.png",
+	"(bandit)":      "emoticons/emoticon_bandit.png",
+	"(phaze)":       "emoticons/phaze_logo_small.png",
+	"(skype)":       "emoticons/phaze_logo_small.png",
+	"(ss)":          "emoticons/phaze_logo_small.png",
+	"(tmi)":         "emoticons/emoticon_tmi.png",
+	"(fubar)":       "emoticons/emoticon_fubar.png",
+	// Picker + extra classic-style codes
+	"(sweat)":      "emoticons/emoticon_sweat.png",
+	"(speechless)": "emoticons/emoticon_speechless.png",
+	"(cheeky)":     "emoticons/emoticon_cheeky.png",
+	"(sleepy)":     "emoticons/emoticon_sleepy.png",
+	"(inlove)":     "emoticons/emoticon_inlove.png",
+	"(egrin)":      "emoticons/emoticon_evilgrin.png",
+	"(party)":      "emoticons/emoticon_party.png",
+	"(dance)":      "emoticons/emoticon_dance.png",
+	"(punch)":      "emoticons/emoticon_punch.png",
+	"(highfive)":   "emoticons/emoticon_highfive.png",
+	"(nod)":        "emoticons/emoticon_nod.png",
+	"(shake)":      "emoticons/emoticon_shake.png",
+	"(wait)":       "emoticons/emoticon_wait.png",
+	"(thinking)":   "emoticons/emoticon_thinking.png",
+	"(mail)":       "emoticons/emoticon_mail.png",
+	"(e)":          "emoticons/emoticon_mail.png",
+	"(idea)":       "emoticons/emoticon_idea.png",
+	"(i)":          "emoticons/emoticon_idea.png",
+	"(clock)":      "emoticons/emoticon_time.png",
+	"(time)":       "emoticons/emoticon_time.png",
+	"(laptop)":     "emoticons/emoticon_laptop.png",
+	"(computer)":   "emoticons/emoticon_laptop.png",
+	"(cat)":        "emoticons/emoticon_cat.png",
+	"(dog)":        "emoticons/emoticon_dog.png",
+	"(snail)":      "emoticons/emoticon_snail.png",
+	"(cash)":       "emoticons/emoticon_cash.png",
+	"(mo)":         "emoticons/emoticon_cash.png",
+	"(bank)":       "emoticons/emoticon_bank.png",
+	"(pig)":        "emoticons/emoticon_pig.png",
+	"(bike)":       "emoticons/emoticon_bike.png",
+	"(car)":        "emoticons/emoticon_car.png",
+	"(plane)":      "emoticons/emoticon_plane.png",
+	"(gift)":       "emoticons/emoticon_gift.png",
+	"(present)":    "emoticons/emoticon_gift.png",
+	"(monkey)":     "emoticons/emoticon_monkey.png",
+	"(ninja)":      "emoticons/emoticon_ninja.png",
+	"(emo)":        "emoticons/emoticon_emo.png",
+	"(headbang)":   "emoticons/emoticon_headbang.png",
+	"(wtf)":        "emoticons/emoticon_wtf.png",
+	"(whew)":       "emoticons/emoticon_whew.png",
+	"(rofl)":       "emoticons/emoticon_rofl.png",
+	"(giggle)":     "emoticons/emoticon_giggle.png",
+	"(chuckle)":    "emoticons/emoticon_chuckle.png",
+	"(yawn)":       "emoticons/emoticon_yawn.png",
+	"(puke)":       "emoticons/emoticon_puke.png",
+	"(sick)":       "emoticons/emoticon_sick.png",
+	"(doh)":        "emoticons/emoticon_doh.png",
+	"(bomb)":       "emoticons/emoticon_bomb.png",
+	"(skull)":      "emoticons/emoticon_skull.png",
+	"(ghost)":      "emoticons/emoticon_ghost.png",
+	"(rainbow)":    "emoticons/emoticon_rainbow.png",
+	"(lightbulb)":  "emoticons/emoticon_idea.png",
+	"(work)":       "emoticons/emoticon_laptop.png",
+	"(typing)":     "emoticons/emoticon_thinking.png",
+}
+
+// EmoticonFileForShortcut returns the assets-relative path for a shortcut (e.g. "emoticons/emoticon_smile.png").
+func EmoticonFileForShortcut(shortcut string) (rel string, ok bool) {
+	rel, ok = emoticonMap[shortcut]
+	return
+}
+
+// emoticonRegex matches any token; longest-first so "(smile)" wins over "(s".
+var emoticonRegex = func() *regexp.Regexp {
+	keys := make([]string, 0, len(emoticonMap))
+	for k := range emoticonMap {
+		keys = append(keys, regexp.QuoteMeta(k))
+	}
+	for i := 0; i < len(keys); i++ {
+		for j := i + 1; j < len(keys); j++ {
+			if len(keys[j]) > len(keys[i]) {
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+	return regexp.MustCompile("(" + strings.Join(keys, "|") + ")")
+}()
