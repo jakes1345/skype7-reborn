@@ -34,7 +34,7 @@ jobs:
             gcc-mingw-w64-x86-64 \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
           args: release --clean
