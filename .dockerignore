@@ -5,6 +5,8 @@ docs
 *.md
 web/node_modules
 web/.vite
+web/.env.local
+web/.env.*.local
 native_client/vendor
 **/*_test.go
 scripts
