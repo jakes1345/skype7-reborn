@@ -1,0 +1,10 @@
+.git
+.github
+.cursor
+docs
+*.md
+web/node_modules
+web/.vite
+native_client/vendor
+**/*_test.go
+scripts

@@ -77,6 +77,18 @@ func main() {
 		log.Printf("warn: PRAGMA busy_timeout: %v", err)
 	}
 
+	// Migrate: add columns that may be absent in older DB schemas.
+	for _, col := range []string{
+		`ALTER TABLE users ADD COLUMN email TEXT`,
+		`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN ban_reason TEXT`,
+	} {
+		if _, err := db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			log.Printf("migration note: %v", err)
+		}
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
 	if err != nil {
 		fatal("bcrypt: %v", err)
