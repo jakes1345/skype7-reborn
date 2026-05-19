@@ -21,9 +21,10 @@ type ChatLine = { id: string; from: string; text: string; me: boolean }
 function defaultWsUrl(): string {
   const u = import.meta.env.VITE_NEXUS_WS as string | undefined
   if (u) return u
-  const { protocol, hostname } = window.location
+  const { protocol, hostname, port } = window.location
   const p = protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${p}//${hostname}:8080/ws`
+  const h = port && protocol !== 'https:' ? `${hostname}:${port}` : hostname
+  return `${p}//${h}/ws`
 }
 
 function loadOrCreateKeys(): { publicKey: Uint8Array; secretKey: Uint8Array } {
