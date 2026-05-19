@@ -77,20 +77,41 @@ func main() {
 		log.Printf("warn: PRAGMA busy_timeout: %v", err)
 	}
 
-	// Migrate: add columns that may be absent in older DB schemas.
-	for _, col := range []string{
-		`ALTER TABLE users ADD COLUMN email TEXT`,
-		`ALTER TABLE users ADD COLUMN mood TEXT`,
-		`ALTER TABLE users ADD COLUMN display_name TEXT`,
-		`ALTER TABLE users ADD COLUMN verification_code TEXT`,
-		`ALTER TABLE users ADD COLUMN phone_number TEXT`,
-		`ALTER TABLE users ADD COLUMN phone_verified INTEGER DEFAULT 0`,
-		`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`,
-		`ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0`,
-		`ALTER TABLE users ADD COLUMN ban_reason TEXT`,
+	// Discover which columns actually exist, then add any that are missing.
+	existing := map[string]bool{}
+	rows, err := db.Query(`PRAGMA table_info(users)`)
+	if err != nil {
+		fatal("PRAGMA table_info: %v", err)
+	}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt sql.NullString
+		_ = rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk)
+		existing[name] = true
+	}
+	rows.Close()
+
+	type colDef struct{ name, ddl string }
+	for _, c := range []colDef{
+		{"email", `ALTER TABLE users ADD COLUMN email TEXT`},
+		{"mood", `ALTER TABLE users ADD COLUMN mood TEXT`},
+		{"display_name", `ALTER TABLE users ADD COLUMN display_name TEXT`},
+		{"is_verified", `ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0`},
+		{"verification_code", `ALTER TABLE users ADD COLUMN verification_code TEXT`},
+		{"phone_number", `ALTER TABLE users ADD COLUMN phone_number TEXT`},
+		{"phone_verified", `ALTER TABLE users ADD COLUMN phone_verified INTEGER DEFAULT 0`},
+		{"is_admin", `ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`},
+		{"is_banned", `ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0`},
+		{"ban_reason", `ALTER TABLE users ADD COLUMN ban_reason TEXT`},
 	} {
-		if _, err := db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-			log.Printf("migration note: %v", err)
+		if !existing[c.name] {
+			if _, err := db.Exec(c.ddl); err != nil {
+				log.Printf("warn: add column %s: %v", c.name, err)
+			} else {
+				log.Printf("migrated: added column %s", c.name)
+			}
 		}
 	}
 
