@@ -1652,6 +1652,38 @@ func (s *NexusServer) handleConnections(w http.ResponseWriter, r *http.Request) 
 			}
 			client.Send(NexusMessage{Type: "reset_password_result", Status: "ok"})
 
+		case "change_password":
+			// msg.Body = "oldpass:newpass" — split on first colon only
+			if username == "" {
+				client.Send(NexusMessage{Type: "change_password_result", Error: "Not authenticated"})
+				continue
+			}
+			idx := strings.Index(msg.Body, ":")
+			if idx < 1 || idx == len(msg.Body)-1 {
+				client.Send(NexusMessage{Type: "change_password_result", Error: "Malformed request"})
+				continue
+			}
+			oldPw, newPw := msg.Body[:idx], msg.Body[idx+1:]
+			if !s.authenticateUser(username, oldPw) {
+				client.Send(NexusMessage{Type: "change_password_result", Error: "Current password incorrect"})
+				continue
+			}
+			if len(newPw) < 8 {
+				client.Send(NexusMessage{Type: "change_password_result", Error: "New password must be at least 8 characters"})
+				continue
+			}
+			hash, err := bcrypt.GenerateFromPassword([]byte(newPw), bcrypt.DefaultCost)
+			if err != nil {
+				client.Send(NexusMessage{Type: "change_password_result", Error: "Internal error"})
+				continue
+			}
+			if _, err := s.DB.Exec("UPDATE users SET password_hash = ? WHERE username = ?", string(hash), username); err != nil {
+				client.Send(NexusMessage{Type: "change_password_result", Error: "Database error"})
+				continue
+			}
+			log.Printf("[security] %s changed password", username)
+			client.Send(NexusMessage{Type: "change_password_result", Status: "ok"})
+
 		case "qr_login_create":
 			tok, err := s.createQRLogin()
 			if err != nil {

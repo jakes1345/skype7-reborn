@@ -11,6 +11,7 @@ import {
 import { loadPins, savePins } from './keyPins'
 import { playPhazeSound } from './phazeSounds'
 import Spaces from './Spaces'
+import Settings from './Settings'
 import './App.css'
 
 const SESSION_KEY = 'phaze_session_token_v1'
@@ -94,6 +95,7 @@ export default function App() {
   const [deletePassword, setDeletePassword] = useState('')
 
   const [view, setView] = useState<'dms' | 'spaces'>('dms')
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const subscribersRef = useRef(new Set<(m: NexusMessage) => void>())
   const subscribe = useCallback((handler: (m: NexusMessage) => void) => {
@@ -539,10 +541,17 @@ export default function App() {
           </div>
         )}
         <span className={`pill ${conn === 'open' ? 'ok' : ''}`}>{conn}</span>
+        {me && (
+          <button className="settings-gear" title="Settings" onClick={() => setSettingsOpen(true)}>⚙</button>
+        )}
         {me && <span className="me">@{me}</span>}
       </header>
 
       {err && <div className="banner">{err}</div>}
+
+      {settingsOpen && me && (
+        <Settings me={me} send={send} subscribe={subscribe} onClose={() => setSettingsOpen(false)} />
+      )}
 
       {/* ── Call overlay ─────────────────────────────────────────── */}
       {callState && (
@@ -705,23 +714,7 @@ export default function App() {
                 )}
               </section>
 
-              {/* ── Panel 4: account / danger zone ───────────────── */}
-              <section className="panel danger">
-                <h2>Account</h2>
-                {!deleteOpen ? (
-                  <button type="button" className="danger-btn" onClick={() => setDeleteOpen(true)}>Delete account…</button>
-                ) : (
-                  <div className="form">
-                    <p className="muted small">This erases your account, friends, messages, sessions, and encryption keys. <strong>Cannot be undone.</strong></p>
-                    <input placeholder='Type "delete my account" to confirm' value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} />
-                    <input type="password" placeholder="Your password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} autoComplete="current-password" />
-                    <div className="row">
-                      <button type="button" className="danger-btn" onClick={requestAccountDelete} disabled={deleteConfirmText !== 'delete my account' || !deletePassword}>Erase my account</button>
-                      <button type="button" onClick={() => { setDeleteOpen(false); setDeletePassword(''); setDeleteConfirmText('') }}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-              </section>
+              {/* Panel 4 removed — account management is in ⚙ Settings */}
             </>
           )}
         </main>
