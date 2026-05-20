@@ -90,7 +90,6 @@ export default function App() {
   const [regEmail, setRegEmail] = useState('')
   const [regPass, setRegPass] = useState('')
   const [regCode, setRegCode] = useState('')
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deletePassword, setDeletePassword] = useState('')
 
@@ -514,17 +513,6 @@ export default function App() {
     setErr('')
     if (!/^\d{6}$/.test(regCode.trim())) { setErr('Enter the 6-digit code from your email'); return }
     send({ type: 'verify_email', sender: regUser, body: regCode.trim() })
-  }
-
-  const requestAccountDelete = () => {
-    if (!me) return
-    if (deleteConfirmText !== 'delete my account') { setErr('Type "delete my account" exactly to confirm.'); return }
-    if (!deletePassword) { setErr('Password required to delete account.'); return }
-    setErr('')
-    send({ type: 'delete_account', sender: me, body: deletePassword })
-    setDeletePassword('')
-    setDeleteConfirmText('')
-    setDeleteOpen(false)
   }
 
   return (
