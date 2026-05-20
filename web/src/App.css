@@ -375,6 +375,209 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
+/* ── Status dots ─────────────────────────────────────────────── */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 0.35rem;
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,0.8);
+}
+
+/* ── Friends list item layout ─────────────────────────────────── */
+.list button {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.friend-name {
+  flex: 1;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.friend-st {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+/* ── Chat header bar ──────────────────────────────────────────── */
+.chat-header-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.5rem 0.45rem;
+  border-bottom: 1px solid var(--panel-edge);
+  min-height: 2.4rem;
+}
+.chat-peer-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #0b3d5c;
+}
+.chat-peer-status {
+  margin-right: auto;
+}
+.chat-call-btns {
+  display: flex;
+  gap: 0.3rem;
+}
+.chat-call-btn {
+  background: none;
+  border: 1px solid #b0c4d4;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms;
+  padding: 0;
+  box-shadow: none;
+  color: var(--text);
+}
+.chat-call-btn:hover {
+  background: var(--list-hover);
+  border-color: var(--phaze-cyan);
+}
+.chat-call-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Typing indicator ─────────────────────────────────────────── */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-style: italic;
+}
+.typing-dots {
+  display: flex;
+  gap: 2px;
+}
+.typing-dots span {
+  width: 4px;
+  height: 4px;
+  background: var(--muted);
+  border-radius: 50%;
+  animation: typingBounce 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+/* ── Call overlay ─────────────────────────────────────────────── */
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(10, 30, 50, 0.88);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.call-videos {
+  position: absolute;
+  inset: 0;
+}
+.call-remote {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.call-local {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  width: 160px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 2px solid rgba(255,255,255,0.3);
+}
+.call-card {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+.call-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--phaze-cyan), var(--phaze-blue));
+  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.15);
+}
+.call-peer-name {
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.call-status-text {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+.call-controls {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+.call-btn-accept {
+  padding: 0.6rem 1.6rem;
+  border-radius: 999px;
+  border: none;
+  background: #22c55e;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(34,197,94,0.4);
+}
+.call-btn-decline {
+  padding: 0.6rem 1.6rem;
+  border-radius: 999px;
+  border: none;
+  background: #ef4444;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(239,68,68,0.4);
+}
+.call-btn-end {
+  padding: 0.6rem 1.8rem;
+  border-radius: 999px;
+  border: none;
+  background: #ef4444;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(239,68,68,0.4);
+}
+
 .app:has(.spaces-root) .top + main,
 .app:has(.spaces-root) .foot {
   /* When Spaces is mounted it owns the whole viewport below the header

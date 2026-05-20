@@ -1,19 +1,14 @@
 """AI abuse-report triage for Phaze Nexus.
 
 Pulls pending reports from /api/v1/admin/reports, classifies each via the
-Anthropic API, and:
+Google Gemini API, and:
 
-  * Auto-resolves reports marked "false_positive" with confidence ≥ 0.85
-    (e.g. clearly accidental flags, jokes, content the reporter
-    misunderstood).
-  * Opens a single batched GitHub issue summarising every report that
-    needs human review (harassment, spam, illegal content, anything
-    ambiguous).
-  * NEVER auto-bans. Bans are always a human decision — the issue body
-    includes a ready-to-run curl for the operator.
+  * Auto-resolves reports marked "false_positive" with confidence ≥ 0.85.
+  * Opens a single batched GitHub issue for everything needing human review.
+  * NEVER auto-bans. Bans are always a human decision.
 
 Required env:
-    ANTHROPIC_API_KEY   - Anthropic console key
+    GOOGLE_API_KEY      - Google AI Studio key (free tier: aistudio.google.com)
     NEXUS_ADMIN_TOKEN   - bearer for an admin user's session_token
     NEXUS_BASE_URL      - e.g. https://phazechat.world
     GH_TOKEN            - GITHUB_TOKEN (provided by Actions)
@@ -27,31 +22,24 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Any
 
-import anthropic
+import google.generativeai as genai
 import httpx
 
 # -----------------------------------------------------------------------
-# Configuration / safety knobs
+# Configuration
 # -----------------------------------------------------------------------
 
-MODEL = "claude-sonnet-4-6"
-
-# Reports we'll auto-act on. Anything not in this set escalates to a human.
+MODEL = "gemini-2.0-flash"
 AUTO_RESOLVE_CATEGORIES = {"false_positive"}
 AUTO_RESOLVE_MIN_CONFIDENCE = 0.85
-
-# Hard cap so a flood of reports can't bankrupt the API budget in one run.
 MAX_REPORTS_PER_RUN = 50
-
 HTTP_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 
 # -----------------------------------------------------------------------
 # Types
 # -----------------------------------------------------------------------
-
 
 @dataclass
 class Report:
@@ -65,19 +53,17 @@ class Report:
 
 @dataclass
 class Classification:
-    category: str          # false_positive | spam | harassment | illegal | other
-    confidence: float      # 0.0 - 1.0
-    reasoning: str         # one-sentence explanation
+    category: str       # false_positive | spam | harassment | illegal | other
+    confidence: float   # 0.0–1.0
+    reasoning: str
 
 
 # -----------------------------------------------------------------------
 # Nexus admin API
 # -----------------------------------------------------------------------
 
-
 def nexus_auth_headers() -> dict[str, str]:
-    token = require_env("NEXUS_ADMIN_TOKEN")
-    return {"Authorization": f"Bearer {token}"}
+    return {"Authorization": f"Bearer {require_env('NEXUS_ADMIN_TOKEN')}"}
 
 
 def fetch_pending_reports(base_url: str) -> list[Report]:
@@ -85,20 +71,17 @@ def fetch_pending_reports(base_url: str) -> list[Report]:
     with httpx.Client(timeout=HTTP_TIMEOUT) as client:
         resp = client.get(url, headers=nexus_auth_headers())
     resp.raise_for_status()
-    raw = resp.json() or []
-    out: list[Report] = []
-    for r in raw:
-        out.append(
-            Report(
-                id=int(r["id"]),
-                reporter=r.get("reporter", ""),
-                subject=r.get("subject", ""),
-                reason=r.get("reason", ""),
-                body=r.get("body", ""),
-                created_at=r.get("created_at", ""),
-            )
+    return [
+        Report(
+            id=int(r["id"]),
+            reporter=r.get("reporter", ""),
+            subject=r.get("subject", ""),
+            reason=r.get("reason", ""),
+            body=r.get("body", ""),
+            created_at=r.get("created_at", ""),
         )
-    return out
+        for r in (resp.json() or [])
+    ]
 
 
 def resolve_report(base_url: str, report_id: int) -> None:
@@ -109,49 +92,43 @@ def resolve_report(base_url: str, report_id: int) -> None:
 
 
 # -----------------------------------------------------------------------
-# Classification (Anthropic API)
+# Classification (Gemini)
 # -----------------------------------------------------------------------
 
+SYSTEM_PROMPT = (
+    "You are a content-moderation triage assistant for a sovereign chat "
+    "platform (Phaze). For each abuse report decide which category fits "
+    "and how confident you are.\n\n"
+    "Categories:\n"
+    "  - false_positive: clearly not actionable (accidental click, joke, "
+    "    benign content the reporter misunderstood). Only use when confident.\n"
+    "  - spam: commercial promotion, mass identical messages, scam links.\n"
+    "  - harassment: targeted hostility, threats, doxxing, hate speech.\n"
+    "  - illegal: CSAM, terrorism, doxxing of minors, NCII. Always escalate.\n"
+    "  - other: anything that doesn't cleanly fit. Always escalate.\n\n"
+    "Respond ONLY with JSON: "
+    '{"category":"...","confidence":0.0-1.0,"reasoning":"one sentence"}'
+)
 
-def classify(client: anthropic.Anthropic, report: Report) -> Classification:
-    system = (
-        "You are a content-moderation triage assistant for a sovereign chat "
-        "platform (Phaze). For each abuse report you receive, decide which "
-        "of these categories best fits and how confident you are.\n\n"
-        "Categories:\n"
-        "  - false_positive: the report is clearly not actionable "
-        "    (accidental click, joke, the reported content is benign, the "
-        "    reporter misunderstood). Only use when confident.\n"
-        "  - spam: commercial promotion, mass identical messages, scam links.\n"
-        "  - harassment: targeted hostility, threats, doxxing, hate speech.\n"
-        "  - illegal: CSAM, terrorism, doxxing of minors, NCII. Always "
-        "    escalate (low confidence is fine — humans review).\n"
-        "  - other: anything that doesn't cleanly fit. Always escalate.\n\n"
-        "Respond ONLY with a JSON object: "
-        '{"category": "...", "confidence": 0.0-1.0, "reasoning": "..."} '
-        "Confidence reflects how sure you are of the category, not how "
-        "severe the report is."
-    )
-    user = (
+
+def classify(model: genai.GenerativeModel, report: Report) -> Classification:
+    prompt = (
+        f"{SYSTEM_PROMPT}\n\n"
         f"Reporter: {report.reporter}\n"
         f"Subject (reported user): {report.subject}\n"
         f"Reason tag: {report.reason}\n"
         f"Report body: {report.body or '(empty)'}\n"
         f"Filed at: {report.created_at}"
     )
-    msg = client.messages.create(
-        model=MODEL,
-        max_tokens=300,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+    response = model.generate_content(
+        prompt,
+        generation_config=genai.GenerationConfig(max_output_tokens=300),
     )
-    # Concatenate all text blocks (defensive — usually one).
-    text = "".join(b.text for b in msg.content if b.type == "text").strip()
-    # Strip an accidental ```json fence if the model added one.
+    text = response.text.strip()
     if text.startswith("```"):
         text = text.strip("`")
         if text.startswith("json"):
-            text = text[len("json"):].lstrip()
+            text = text[4:].lstrip()
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
@@ -167,9 +144,7 @@ def classify(client: anthropic.Anthropic, report: Report) -> Classification:
 # Escalation (GitHub issue)
 # -----------------------------------------------------------------------
 
-
 def open_escalation_issue(base_url: str, escalations: list[tuple[Report, Classification]]) -> None:
-    """One issue per run summarising everything that needs human review."""
     if not escalations:
         return
     gh_token = require_env("GH_TOKEN")
@@ -178,9 +153,7 @@ def open_escalation_issue(base_url: str, escalations: list[tuple[Report, Classif
     body_lines = [
         f"AI triage flagged **{len(escalations)} report(s)** that need human review.",
         "",
-        "Each row below has the model's category guess + a ready-to-run "
-        "curl for the most common operator actions. Bans are *never* "
-        "issued automatically.",
+        "Bans are *never* issued automatically — review and act below.",
         "",
         "| # | Category | Conf | Reporter → Subject | Reason | AI says |",
         "| - | -------- | ---- | ------------------ | ------ | ------- |",
@@ -195,46 +168,34 @@ def open_escalation_issue(base_url: str, escalations: list[tuple[Report, Classif
     body_lines += [
         "",
         "### Operator quickstart",
-        "Export your admin bearer once:",
-        "",
         "```sh",
-        "export NEXUS_BASE='" + base_url + "'",
+        f"export NEXUS_BASE='{base_url}'",
         "export NEXUS_TOK='<your admin session token>'",
         "```",
         "",
-        "Resolve a report (no action against the subject):",
+        "Resolve (no action):",
         "```sh",
-        "curl -X POST \"$NEXUS_BASE/api/v1/admin/reports/<id>/resolve\" \\",
-        "  -H \"Authorization: Bearer $NEXUS_TOK\"",
+        'curl -X POST "$NEXUS_BASE/api/v1/admin/reports/<id>/resolve" \\',
+        '  -H "Authorization: Bearer $NEXUS_TOK"',
         "```",
         "",
-        "Ban the subject with a reason:",
+        "Ban subject:",
         "```sh",
-        "curl -X POST \"$NEXUS_BASE/api/v1/admin/users/<username>/ban\" \\",
-        "  -H \"Authorization: Bearer $NEXUS_TOK\" \\",
+        'curl -X POST "$NEXUS_BASE/api/v1/admin/users/<username>/ban" \\',
+        '  -H "Authorization: Bearer $NEXUS_TOK" \\',
         "  -H 'Content-Type: application/json' \\",
-        "  -d '{\"reason\":\"<short reason shown to the user>\"}'",
+        "  -d '{\"reason\":\"<reason shown to user>\"}'",
         "```",
     ]
 
-    title_categories = sorted({c.category for _, c in escalations})
-    title = f"AI triage: {len(escalations)} report(s) need review ({', '.join(title_categories)})"
-
+    categories = sorted({c.category for _, c in escalations})
+    title = f"AI triage: {len(escalations)} report(s) need review ({', '.join(categories)})"
     issue_body = "\n".join(body_lines)
-    payload = json.dumps({"title": title, "body": issue_body, "labels": ["ai-triage", "moderation"]})
 
-    # Use the gh CLI when available; otherwise fall back to a raw API call.
-    # gh is preinstalled on GitHub-hosted runners, so the fast path almost
-    # always wins.
     try:
         subprocess.run(
-            [
-                "gh", "issue", "create",
-                "--title", title,
-                "--body", issue_body,
-                "--label", "ai-triage",
-                "--label", "moderation",
-            ],
+            ["gh", "issue", "create", "--title", title, "--body", issue_body,
+             "--label", "ai-triage", "--label", "moderation"],
             check=True,
             env={**os.environ, "GH_TOKEN": gh_token},
         )
@@ -245,7 +206,7 @@ def open_escalation_issue(base_url: str, escalations: list[tuple[Report, Classif
     with httpx.Client(timeout=HTTP_TIMEOUT) as client:
         resp = client.post(
             f"https://api.github.com/repos/{repo}/issues",
-            content=payload,
+            content=json.dumps({"title": title, "body": issue_body, "labels": ["ai-triage", "moderation"]}),
             headers={
                 "Authorization": f"Bearer {gh_token}",
                 "Accept": "application/vnd.github+json",
@@ -259,7 +220,6 @@ def open_escalation_issue(base_url: str, escalations: list[tuple[Report, Classif
 # Glue
 # -----------------------------------------------------------------------
 
-
 def require_env(name: str) -> str:
     v = os.environ.get(name, "").strip()
     if not v:
@@ -270,7 +230,7 @@ def require_env(name: str) -> str:
 
 def main() -> int:
     base_url = require_env("NEXUS_BASE_URL")
-    anthropic_key = require_env("ANTHROPIC_API_KEY")
+    google_key = require_env("GOOGLE_API_KEY")
 
     try:
         reports = fetch_pending_reports(base_url)
@@ -286,16 +246,17 @@ def main() -> int:
         print(f"capping {len(reports)} → {MAX_REPORTS_PER_RUN} this run")
         reports = reports[:MAX_REPORTS_PER_RUN]
 
-    client = anthropic.Anthropic(api_key=anthropic_key)
+    genai.configure(api_key=google_key)
+    model = genai.GenerativeModel(MODEL)
+
     auto_resolved: list[tuple[Report, Classification]] = []
     escalations: list[tuple[Report, Classification]] = []
 
     for r in reports:
         try:
-            c = classify(client, r)
-        except Exception as e:  # network blip / overload / parse error
+            c = classify(model, r)
+        except Exception as e:
             sys.stderr.write(f"classify {r.id}: {e}\n")
-            # Default to escalation on any failure — never silently drop.
             escalations.append((r, Classification("other", 0.0, f"classifier error: {e}")))
             continue
 
@@ -316,8 +277,6 @@ def main() -> int:
             open_escalation_issue(base_url, escalations)
         except Exception as e:
             sys.stderr.write(f"escalation issue: {e}\n")
-            # Don't fail the job — we still successfully resolved the trivial
-            # ones; the issue creation can be retried next run.
 
     print(f"summary: auto-resolved={len(auto_resolved)} escalated={len(escalations)}")
     return 0

@@ -12,9 +12,8 @@ name: AI Abuse Triage
 #   - All actions are logged in the issue body so you can audit the loop.
 #
 # Required secrets:
-#   ANTHROPIC_API_KEY      — Anthropic API key
+#   GOOGLE_API_KEY         — Google AI Studio key (free: aistudio.google.com)
 #   NEXUS_ADMIN_TOKEN      — bearer token from an admin's session_auth
-#                            (mint via the web client, copy from devtools)
 #   NEXUS_BASE_URL         — e.g. https://phazechat.world
 
 on:
@@ -50,7 +49,7 @@ jobs:
 
       - name: Run triage
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           NEXUS_ADMIN_TOKEN: ${{ secrets.NEXUS_ADMIN_TOKEN }}
           NEXUS_BASE_URL: ${{ secrets.NEXUS_BASE_URL }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
