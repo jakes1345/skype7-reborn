@@ -1,6 +1,6 @@
 module phaze-native
 
-go 1.24.0
+go 1.25.0
 
 require (
 	fyne.io/fyne/v2 v2.7.3
@@ -13,7 +13,7 @@ require (
 	github.com/pion/rtp v1.8.26
 	github.com/pion/webrtc/v3 v3.2.49
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/crypto v0.36.0
+	golang.org/x/crypto v0.51.0
 	modernc.org/sqlite v1.30.0
 )
 
@@ -170,12 +170,13 @@ require (
 	golang.org/x/exp/shiny v0.0.0-20230817173708-d852ddb80c63 // indirect
 	golang.org/x/image v0.25.0 // indirect
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a // indirect
-	golang.org/x/mod v0.25.0 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
-	golang.org/x/tools v0.31.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260409153401-be6f6cb8b1fa // indirect
+	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/tools v0.44.0 // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
