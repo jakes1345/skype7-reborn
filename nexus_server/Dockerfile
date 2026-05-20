@@ -19,7 +19,7 @@ RUN cd nexus_server \
 # 2) Build the React/Vite web client.
 #    Emits a static SPA at /src/web/dist that the Go server will mount at /web.
 # -----------------------------------------------------------------------
-FROM node:22-alpine AS web-build
+FROM node:26-alpine AS web-build
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
